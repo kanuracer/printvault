@@ -22,7 +22,8 @@
   "topbar": {
     "searchLabel": "Modelle durchsuchen",
     "searchPlaceholder": "Modelle, Tags und Dateien durchsuchen",
-    "menu": "Navigation öffnen"
+    "menu": "Navigation öffnen",
+    "inspector": "Details öffnen"
   },
   "content": {
     "eyebrow": "Bibliothek",
@@ -121,6 +122,7 @@
   "actions": {
     "save": "Speichern",
     "cancel": "Abbrechen",
+    "close": "Schließen",
     "archive": "Archivieren",
     "delete": "Endgültig löschen",
     "archiveConfirm": "„{{name}}“ ins Archiv verschieben?",

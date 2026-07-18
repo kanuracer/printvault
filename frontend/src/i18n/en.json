@@ -22,7 +22,8 @@
   "topbar": {
     "searchLabel": "Search models",
     "searchPlaceholder": "Search models, tags, and files",
-    "menu": "Open navigation"
+    "menu": "Open navigation",
+    "inspector": "Open details"
   },
   "content": {
     "eyebrow": "Library",
@@ -121,6 +122,7 @@
   "actions": {
     "save": "Save",
     "cancel": "Cancel",
+    "close": "Close",
     "archive": "Archive",
     "delete": "Delete permanently",
     "archiveConfirm": "Move “{{name}}” to archive?",

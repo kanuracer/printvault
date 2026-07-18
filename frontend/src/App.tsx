@@ -49,6 +49,14 @@ function SearchIcon() {
   return <svg aria-hidden="true" fill="none" height="17" viewBox="0 0 24 24" width="17"><circle cx="11" cy="11" r="6.5" stroke="currentColor" strokeWidth="1.8" /><path d="m16 16 4.2 4.2" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" /></svg>
 }
 
+function MenuIcon() {
+  return <svg aria-hidden="true" fill="none" height="20" viewBox="0 0 24 24" width="20"><path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" /></svg>
+}
+
+function DetailsIcon() {
+  return <svg aria-hidden="true" fill="none" height="20" viewBox="0 0 24 24" width="20"><rect height="16" rx="2" stroke="currentColor" strokeWidth="1.7" width="14" x="5" y="4" /><path d="M9 9h6M9 13h6M9 17h3" stroke="currentColor" strokeLinecap="round" strokeWidth="1.7" /></svg>
+}
+
 function CubeIcon() {
   return <svg aria-hidden="true" fill="none" height="17" viewBox="0 0 24 24" width="17"><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z" stroke="currentColor" strokeLinejoin="round" strokeWidth="1.5" /><path d="M4.5 7.8 12 12l7.5-4.2M12 12v9" stroke="currentColor" strokeLinejoin="round" strokeWidth="1.5" /></svg>
 }
@@ -164,6 +172,8 @@ export default function App() {
   const [selectionState, setSelectionState] = useState<SelectionState>('idle')
   const [uploading, setUploading] = useState(false)
   const [isDragging, setIsDragging] = useState(false)
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
+  const [mobileInspectorOpen, setMobileInspectorOpen] = useState(false)
 
   const [thumbnailRevision, setThumbnailRevision] = useState(0)
   const [uploadMessage, setUploadMessage] = useState<string | null>(null)
@@ -240,6 +250,17 @@ export default function App() {
     return () => mediaQuery.removeEventListener('change', updateSystemTheme)
   }, [preference])
 
+  useEffect(() => {
+    if (!mobileSidebarOpen && !mobileInspectorOpen) return undefined
+    const closeMobilePanels = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      setMobileSidebarOpen(false)
+      setMobileInspectorOpen(false)
+    }
+    window.addEventListener('keydown', closeMobilePanels)
+    return () => window.removeEventListener('keydown', closeMobilePanels)
+  }, [mobileInspectorOpen, mobileSidebarOpen])
+
   const selectAppearance = (nextPreference: ThemePreference) => {
     saveThemePreference(nextPreference)
     setPreference(nextPreference)
@@ -303,6 +324,7 @@ export default function App() {
   }
 
   const chooseLibrary = async (libraryKey: string | null) => {
+    setMobileSidebarOpen(false)
     navigateExplorer({ libraryKey, projectId: null, folderId: null, showProjects: false })
     setSelectedAsset(null)
     setSelectionState('idle')
@@ -314,6 +336,7 @@ export default function App() {
   }
 
   const chooseProject = async (projectId: string) => {
+    setMobileSidebarOpen(false)
     navigateExplorer({ libraryKey: null, projectId, folderId: null, showProjects: false })
     setSelectedAsset(null)
     setSelectionState('idle')
@@ -327,12 +350,14 @@ export default function App() {
   }
 
   const chooseProjects = () => {
+    setMobileSidebarOpen(false)
     navigateExplorer({ libraryKey: null, projectId: null, folderId: null, showProjects: true })
     setSelectedAsset(null)
     setSelectionState('idle')
   }
 
   const chooseFolder = (folderId: string | null) => {
+    setMobileSidebarOpen(false)
     if (!activeProject) return
     navigateExplorer({ libraryKey: null, projectId: activeProject, folderId, showProjects: false })
     setSelectedAsset(null)
@@ -413,6 +438,7 @@ export default function App() {
       setSelectedAsset(asset)
       setSelectedTagKeys(asset.tags)
       setSelectionState('ready')
+      if (typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 760px)').matches) setMobileInspectorOpen(true)
     } catch {
       setSelectionState('error')
     }
@@ -493,10 +519,11 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      <aside className="sidebar">
+      <aside aria-label={t('navigation.libraries')} aria-modal={mobileSidebarOpen || undefined} className={`sidebar ${mobileSidebarOpen ? 'is-mobile-open' : ''}`} role={mobileSidebarOpen ? 'dialog' : undefined}>
         <div className="brand">
           <div className="brand-mark"><CubeIcon /></div>
           <div className="brand-copy"><span className="brand-name">{t('app.name')}</span><span className="brand-tagline">{t('app.tagline')}</span></div>
+          <button aria-label={t('actions.close')} className="mobile-panel-close" onClick={() => setMobileSidebarOpen(false)} type="button">×</button>
         </div>
 
         <nav aria-label={t('navigation.libraries')}>
@@ -510,7 +537,7 @@ export default function App() {
         </nav>
 
         <nav aria-label={t('projects.title')} className="projects-nav">
-          <div className="nav-section-heading"><button className="nav-label nav-section-button" onClick={chooseProjects} type="button">{t('projects.title')}</button>{canUpload && <button aria-label={t('projects.add')} className="nav-add-button" onClick={() => setProjectFormOpen(true)} type="button">+</button>}</div>
+          <div className="nav-section-heading"><button className="nav-label nav-section-button" onClick={chooseProjects} type="button">{t('projects.title')}</button>{canUpload && <button aria-label={t('projects.add')} className="nav-add-button" onClick={() => { setProjectFormOpen(true); setMobileSidebarOpen(false) }} type="button">+</button>}</div>
           <div className="library-nav">{projects.slice(0, 30).map((project) => <button className={`nav-item ${activeProject === project.id ? 'is-active' : ''}`} key={project.id} onClick={() => void chooseProject(project.id)} type="button"><span className="nav-bullet" />{project.name}<span className="nav-count">{project.assetIds.length}</span></button>)}{projects.length > 30 && <ProjectPicker assignedProjectIds={new Set()} label={t('projects.open')} onAssign={(projectId) => void chooseProject(projectId)} projects={projects} searchLabel={t('projects.search')} emptyLabel={t('projects.noMatches')} />}</div>
         </nav>
 
@@ -527,7 +554,9 @@ export default function App() {
 
       <main className="workspace">
         <header className="topbar">
+          <button aria-expanded={mobileSidebarOpen} aria-label={t('topbar.menu')} className="icon-button" onClick={() => { setMobileSidebarOpen(true); setMobileInspectorOpen(false) }} type="button"><MenuIcon /></button>
           <label className="search"><span className="search-icon"><SearchIcon /></span><input aria-label={t('topbar.searchLabel')} onChange={(event) => setSearch(event.target.value)} placeholder={t('topbar.searchPlaceholder')} type="search" value={search} /></label>
+          <button aria-expanded={mobileInspectorOpen} aria-label={t('topbar.inspector')} className="icon-button" onClick={() => { setMobileInspectorOpen(true); setMobileSidebarOpen(false) }} type="button"><DetailsIcon /></button>
         </header>
 
         <section aria-label={t('content.title')} className="content">
@@ -549,8 +578,9 @@ export default function App() {
         </section>
       </main>
 
-      <aside aria-label={t('inspector.label')} className="inspector" role="complementary">
-        <div className="inspector-header"><span className="section-label">{t('inspector.label')}</span></div>
+      {(mobileSidebarOpen || mobileInspectorOpen) && <div aria-hidden="true" className="mobile-panel-backdrop" onMouseDown={() => { setMobileSidebarOpen(false); setMobileInspectorOpen(false) }} />}
+      <aside aria-label={t('inspector.label')} aria-modal={mobileInspectorOpen || undefined} className={`inspector ${mobileInspectorOpen ? 'is-mobile-open' : ''}`} role={mobileInspectorOpen ? 'dialog' : 'complementary'}>
+        <div className="inspector-header"><span className="section-label">{t('inspector.label')}</span><button aria-label={t('actions.close')} className="mobile-panel-close" onClick={() => setMobileInspectorOpen(false)} type="button">×</button></div>
         {selectionState === 'idle' && <div className="content-state"><h2 className="inspector-title">{t('inspector.emptyTitle')}</h2><p>{t('inspector.emptyDescription')}</p></div>}
         {selectionState === 'loading' && <p role="status">{t('inspector.loading')}</p>}
         {selectionState === 'error' && <p role="alert">{t('inspector.error')}</p>}

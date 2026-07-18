@@ -79,6 +79,21 @@ describe('PrintVault authenticated asset library', () => {
     expect(within(libraries).queryByRole('button', { name: 'Projects' })).not.toBeInTheDocument()
   })
 
+  it('opens mobile navigation and details as dismissible dialogs', async () => {
+    vi.mocked(fetch).mockImplementation(authenticatedResponses([]))
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.click(await screen.findByRole('button', { name: 'Navigation öffnen' }))
+    const navigationDialog = await screen.findByRole('dialog', { name: 'Bibliotheken' })
+    await user.click(within(navigationDialog).getByRole('button', { name: 'Schließen' }))
+    expect(screen.queryByRole('dialog', { name: 'Bibliotheken' })).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Details öffnen' }))
+    expect(await screen.findByRole('dialog', { name: 'Details' })).toBeVisible()
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('dialog', { name: 'Details' })).not.toBeInTheDocument()
+  })
 
   it('uploads multiple supported files with the editor upload control', async () => {
     const fetchMock = vi.mocked(fetch)
