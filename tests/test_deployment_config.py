@@ -174,7 +174,7 @@ networks:
         self.assertEqual(service["security_opt"], ["no-new-privileges:true"])
         self.assertEqual(
             service["tmpfs"],
-            ["/tmp:mode=1777", "/var/cache/nginx:uid=99,gid=100,mode=0750"],
+            ["/tmp:mode=1777,size=640m", "/var/cache/nginx:uid=99,gid=100,mode=0750,size=640m"],
         )
         self.assertIn("healthcheck", service)
         self.assertEqual(
@@ -248,6 +248,7 @@ networks:
         self.assertIn("proxy_temp_path /var/cache/nginx/proxy_temp;", nginx_config)
         self.assertIn("location = /api { return 308 /api/; }", nginx_config)
         self.assertIn("proxy_pass http://127.0.0.1:8000;", nginx_config)
+        self.assertIn("client_max_body_size 512m;", nginx_config)
         self.assertIn("log_format privacy_safe", nginx_config)
         self.assertIn("$request_method $uri $server_protocol", nginx_config)
         self.assertNotIn("access_log /dev/stdout;", nginx_config)

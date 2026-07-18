@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import './i18n'
-import { ApiError, assetDownloadUrl, getAsset, getAssets, getCurrentUser, getLibraries, type Asset, type Library } from './api'
+import { ApiError, assetDownloadUrl, getAsset, getAssets, getCurrentUser, getLibraries, uploadFiles, type Asset, type Library, type UserRole } from './api'
 import { ModelViewer } from './features/viewer/ModelViewer'
 import type { ViewerSource } from './features/viewer/viewerSource'
 import { applyTheme, readThemePreference, saveThemePreference, type ThemePreference } from './theme'
@@ -37,6 +37,7 @@ export default function App() {
   const { t } = useTranslation()
   const [preference, setPreference] = useState<ThemePreference>(readThemePreference)
   const [authState, setAuthState] = useState<AuthState>('loading')
+  const [role, setRole] = useState<UserRole | null>(null)
   const [assetState, setAssetState] = useState<AssetState>('loading')
   const [libraries, setLibraries] = useState<Library[]>([])
   const [assets, setAssets] = useState<Asset[]>([])
@@ -44,6 +45,10 @@ export default function App() {
   const [search, setSearch] = useState('')
   const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null)
   const [selectionState, setSelectionState] = useState<SelectionState>('idle')
+  const [uploading, setUploading] = useState(false)
+  const [isDragging, setIsDragging] = useState(false)
+  const [uploadMessage, setUploadMessage] = useState<string | null>(null)
+  const fileInput = useRef<HTMLInputElement>(null)
 
   const loadWorkspace = () => {
     let cancelled = false
@@ -53,8 +58,9 @@ export default function App() {
     setSelectionState('idle')
 
     void getCurrentUser()
-      .then(async () => {
+      .then(async (user) => {
         if (cancelled) return
+        setRole(user.role)
         setAuthState('authenticated')
         try {
           const [nextLibraries, nextAssets] = await Promise.all([getLibraries(), getAssets()])
@@ -104,6 +110,30 @@ export default function App() {
       return [asset.filename, asset.relativePath, ...asset.tags].some((value) => value.toLocaleLowerCase().includes(term))
     })
   }, [activeLibrary, assets, search])
+
+  const canUpload = role === 'editor' || role === 'admin'
+  const uploadLibrary = activeLibrary && activeLibrary !== 'archive'
+    ? activeLibrary
+    : libraries.find((library) => library.key === 'models')?.key ?? libraries.find((library) => library.key !== 'archive')?.key ?? null
+
+  const handleUpload = async (incoming: FileList | File[]) => {
+    const files = Array.from(incoming)
+    if (!canUpload || !uploadLibrary || files.length === 0 || uploading) return
+    setUploading(true)
+    setUploadMessage(null)
+    try {
+      const result = await uploadFiles(uploadLibrary, files)
+      setAssets((current) => [...current.filter((asset) => !result.items.some((uploaded) => uploaded.id === asset.id)), ...result.items])
+      setUploadMessage(result.rejected.length === 0
+        ? t('upload.success', { count: result.items.length })
+        : t('upload.partial', { uploaded: result.items.length, rejected: result.rejected.length }))
+    } catch {
+      setUploadMessage(t('upload.error'))
+    } finally {
+      setUploading(false)
+      if (fileInput.current) fileInput.current.value = ''
+    }
+  }
 
   const selectAsset = async (id: string) => {
     setSelectionState('loading')
@@ -182,6 +212,11 @@ export default function App() {
 
         <section aria-label={t('content.title')} className="content">
           <div className="content-header"><div><p className="section-label">{t('content.eyebrow')}</p><h1>{t('content.title')}</h1>{assetState === 'ready' && <p className="result-count">{t('content.resultCount', { count: visibleAssets.length })}</p>}</div></div>
+          {canUpload && uploadLibrary && <div aria-label={t('upload.dropLabel')} className={`upload-dropzone ${isDragging ? 'is-dragging' : ''}`} onClick={() => fileInput.current?.click()} onDragEnter={(event) => { event.preventDefault(); setIsDragging(true) }} onDragLeave={(event) => { event.preventDefault(); setIsDragging(false) }} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); setIsDragging(false); void handleUpload(event.dataTransfer.files) }} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); fileInput.current?.click() } }} role="button" tabIndex={0}>
+            <input accept=".stl,.obj,.3mf" aria-label={t('upload.inputLabel')} className="visually-hidden" multiple onChange={(event) => void handleUpload(event.currentTarget.files ?? [])} ref={fileInput} type="file" />
+            <strong>{uploading ? t('upload.uploading') : t('upload.title')}</strong><span>{t('upload.description')}</span>
+          </div>}
+          {uploadMessage && <p className="upload-message" role="status">{uploadMessage}</p>}
           {assetState === 'loading' && <p role="status">{t('content.loading')}</p>}
           {assetState === 'error' && <div className="content-state" role="alert"><p>{t('content.error')}</p><button className="ghost-button" onClick={loadWorkspace} type="button">{t('content.retry')}</button></div>}
           {assetState === 'ready' && visibleAssets.length === 0 && <div className="content-state"><h2>{t('content.emptyTitle')}</h2><p>{t('content.emptyDescription')}</p></div>}

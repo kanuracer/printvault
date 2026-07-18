@@ -105,6 +105,28 @@ export async function getAsset(id: string): Promise<Asset> {
   return asset
 }
 
+export type UploadResponse = {
+  items: Asset[]
+  rejected: Array<{ filename: string, reason: string }>
+}
+
+export async function uploadFiles(libraryKey: string, files: File[]): Promise<UploadResponse> {
+  const body = new FormData()
+  body.append('library_key', libraryKey)
+  files.forEach((file) => body.append('files', file, file.name))
+  const response = await fetch('/api/uploads', { method: 'POST', credentials: 'same-origin', headers: { Accept: 'application/json' }, body })
+  if (!response.ok) throw new ApiError(response.status)
+  const payload = await response.json()
+  if (!isObject(payload) || !Array.isArray(payload.items) || !Array.isArray(payload.rejected)) throw new ApiError(500)
+  return {
+    items: payload.items.flatMap((item) => {
+      const asset = assetFromJson(item)
+      return asset ? [asset] : []
+    }),
+    rejected: payload.rejected.flatMap((item) => isObject(item) && typeof item.filename === 'string' && typeof item.reason === 'string' ? [{ filename: item.filename, reason: item.reason }] : []),
+  }
+}
+
 export function assetDownloadUrl(id: string): string {
   return `/api/assets/${encodeURIComponent(id)}/download`
 }

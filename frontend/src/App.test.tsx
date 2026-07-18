@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
@@ -13,9 +13,9 @@ const jsonResponse = (body: unknown, status = 200) => new Response(JSON.stringif
   headers: { 'Content-Type': 'application/json' },
 })
 
-const authenticatedResponses = (assets: unknown, detail = assets) => (input: RequestInfo | URL) => {
+const authenticatedResponses = (assets: unknown, detail = assets, role: 'viewer' | 'editor' | 'admin' = 'viewer') => (input: RequestInfo | URL) => {
   const url = String(input)
-  if (url === '/api/auth/me') return Promise.resolve(jsonResponse({ subject: 'user-1', role: 'viewer' }))
+  if (url === '/api/auth/me') return Promise.resolve(jsonResponse({ subject: 'user-1', role }))
   if (url === '/api/libraries') return Promise.resolve(jsonResponse({ items: [{ key: 'models', name: 'Modelle' }] }))
   if (url === '/api/assets') return Promise.resolve(jsonResponse({ items: assets, total: Array.isArray(assets) ? assets.length : 0 }))
   if (url === '/api/assets/asset%20id%2F1') return Promise.resolve(jsonResponse(detail))
@@ -54,6 +54,50 @@ describe('PrintVault authenticated asset library', () => {
     expect(await screen.findByText('Du hast keinen Zugriff auf PrintVault.')).toBeVisible()
     expect(screen.getByRole('link', { name: 'Erneut anmelden' })).toHaveAttribute('href', '/api/auth/login')
     expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('uploads multiple supported files with the editor upload control', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url === '/api/auth/me') return Promise.resolve(jsonResponse({ subject: 'editor-1', role: 'editor' }))
+      if (url === '/api/libraries') return Promise.resolve(jsonResponse({ items: [{ key: 'models', name: 'Modelle' }] }))
+      if (url === '/api/assets') return Promise.resolve(jsonResponse({ items: [], total: 0 }))
+      if (url === '/api/uploads') {
+        const body = init?.body
+        expect(body).toBeInstanceOf(FormData)
+        expect((body as FormData).get('library_key')).toBe('models')
+        expect((body as FormData).getAll('files').map((file) => (file as File).name)).toEqual(['bracket.stl', 'case.obj'])
+        return Promise.resolve(jsonResponse({ items: [], rejected: [] }))
+      }
+      return Promise.reject(new Error(`Unexpected request: ${url}`))
+    })
+    const user = userEvent.setup()
+
+    render(<App />)
+    const files = [new File(['solid bracket'], 'bracket.stl', { type: 'model/stl' }), new File(['o case'], 'case.obj', { type: 'model/obj' })]
+    await user.upload(await screen.findByLabelText('Modelle hochladen'), files)
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/uploads', expect.objectContaining({ method: 'POST' })))
+  })
+
+  it('accepts dropped files in the editor drop zone', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url === '/api/auth/me') return Promise.resolve(jsonResponse({ subject: 'editor-1', role: 'editor' }))
+      if (url === '/api/libraries') return Promise.resolve(jsonResponse({ items: [{ key: 'models', name: 'Modelle' }] }))
+      if (url === '/api/assets') return Promise.resolve(jsonResponse({ items: [], total: 0 }))
+      if (url === '/api/uploads') return Promise.resolve(jsonResponse({ items: [], rejected: [] }))
+      return Promise.reject(new Error(`Unexpected request: ${url}`))
+    })
+
+    render(<App />)
+    fireEvent.drop(await screen.findByLabelText('Dateien hier ablegen'), {
+      dataTransfer: { files: [new File(['solid dropped'], 'dropped.stl', { type: 'model/stl' })] },
+    })
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/uploads', expect.objectContaining({ method: 'POST' })))
   })
 
   it('renders real API metadata and opens a viewer from the selected API asset record', async () => {

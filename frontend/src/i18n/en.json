@@ -38,6 +38,17 @@
     "assetMetaWithSize": "{{format}} · {{path}} · {{size}}",
     "fileSize": "{{size}} MB"
   },
+  "upload": {
+    "title": "Upload files",
+    "description": "Drop STL, OBJ, or 3MF files here, or choose them",
+    "dropLabel": "Drop files here",
+    "inputLabel": "Upload models",
+    "uploading": "Uploading files …",
+    "success_one": "{{count}} file uploaded successfully",
+    "success_other": "{{count}} files uploaded successfully",
+    "partial": "{{uploaded}} uploaded, {{rejected}} rejected",
+    "error": "Upload failed. Please try again."
+  },
   "inspector": {
     "label": "Details",
     "emptyTitle": "Select a model",

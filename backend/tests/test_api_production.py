@@ -135,6 +135,64 @@ def test_archive_library_assets_are_hidden_from_normal_browse_until_explicitly_r
     assert [item["id"] for item in archive.json()["items"]] == [str(archived.id)]
 
 
+def test_production_uploads_multiple_supported_files_to_a_configured_library_and_indexes_them(tmp_path: Path) -> None:
+    settings = production_settings(tmp_path)
+    with TestClient(create_app(settings), base_url="https://printvault.example.test") as client:
+        client.cookies.set("printvault_session", signed_session(settings, subject="editor-1", role="editor"))
+        response = client.post(
+            "/api/uploads",
+            data={"library_key": "models"},
+            files=[
+                ("files", ("bracket.stl", b"solid bracket\nendsolid bracket\n", "model/stl")),
+                ("files", ("case.obj", b"o case\nv 0 0 0\n", "model/obj")),
+            ],
+        )
+        listed = client.get("/api/assets", params={"library": "models"})
+        with session_factory(settings)() as session:
+            events = session.scalars(select(AuditEvent).order_by(AuditEvent.id)).all()
+
+    assert response.status_code == 200
+    assert [(item["relative_path"], item["format"]) for item in response.json()["items"]] == [
+        ("bracket.stl", "stl"),
+        ("case.obj", "obj"),
+    ]
+    assert response.json()["rejected"] == []
+    assert (settings.library_models_root / "bracket.stl").read_bytes() == b"solid bracket\nendsolid bracket\n"
+    assert (settings.library_models_root / "case.obj").read_bytes() == b"o case\nv 0 0 0\n"
+    assert {item["relative_path"] for item in listed.json()["items"]} == {"bracket.stl", "case.obj"}
+    assert [event.action for event in events] == ["upload", "upload"]
+
+
+def test_upload_rejects_viewers_before_writing_files(tmp_path: Path) -> None:
+    settings = production_settings(tmp_path)
+    with TestClient(create_app(settings), base_url="https://printvault.example.test") as client:
+        client.cookies.set("printvault_session", signed_session(settings, subject="viewer-1", role="viewer"))
+        response = client.post(
+            "/api/uploads",
+            data={"library_key": "models"},
+            files=[("files", ("forbidden.stl", b"solid forbidden", "model/stl"))],
+        )
+
+    assert response.status_code == 403
+    assert not (settings.library_models_root / "forbidden.stl").exists()
+
+
+def test_upload_rejects_unsupported_files_without_writing_them(tmp_path: Path) -> None:
+    settings = production_settings(tmp_path)
+    with TestClient(create_app(settings), base_url="https://printvault.example.test") as client:
+        client.cookies.set("printvault_session", signed_session(settings, subject="editor-1", role="editor"))
+        response = client.post(
+            "/api/uploads",
+            data={"library_key": "models"},
+            files=[("files", ("not-a-model.txt", b"not a model", "text/plain"))],
+        )
+
+    assert response.status_code == 200
+    assert response.json()["items"] == []
+    assert response.json()["rejected"] == [{"filename": "not-a-model.txt", "reason": "unsupported_format"}]
+    assert not (settings.library_models_root / "not-a-model.txt").exists()
+
+
 def test_production_archive_restore_and_permanent_delete_update_database_after_filesystem_success(tmp_path: Path) -> None:
     settings = production_settings(tmp_path)
     with TestClient(create_app(settings), base_url="https://printvault.example.test") as client:

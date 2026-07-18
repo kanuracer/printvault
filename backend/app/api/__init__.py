@@ -15,11 +15,12 @@ from pathlib import PurePosixPath, PureWindowsPath
 from typing import BinaryIO, Protocol
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, status
+from fastapi import APIRouter, Depends, FastAPI, File, Form, HTTPException, Request, UploadFile, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.services.rbac import ROLE_CAPABILITIES
+from app.services.metadata import SUPPORTED_FORMATS
 
 
 @dataclass(frozen=True)
@@ -54,6 +55,7 @@ class AssetRecord:
     favorite: bool = False
     tags: set[str] = field(default_factory=set)
     archived: bool = False
+    byte_size: int | None = None
     content: bytes = b""
     content_type: str = "application/octet-stream"
 
@@ -113,6 +115,8 @@ class AssetRepository(Protocol):
     ) -> AssetRecord | None: ...
 
     def permanently_delete(self, asset_id: str, *, actor_subject: str) -> bool: ...
+
+    def upload(self, library_key: str, filename: str, stream: BinaryIO, *, actor_subject: str) -> AssetRecord: ...
 
     def list_audit(self) -> list[AuditRecord]: ...
 
@@ -236,6 +240,24 @@ class InMemoryAssetRepository:
         self._record(actor_subject, "permanent_delete", asset_id)
         return True
 
+    def upload(self, library_key: str, filename: str, stream: BinaryIO, *, actor_subject: str) -> AssetRecord:
+        normalized = _safe_upload_filename(filename)
+        if library_key not in self._libraries:
+            raise ValueError("unknown library")
+        if any(asset.library_key == library_key and asset.relative_path == normalized for asset in self._assets.values()):
+            raise FileExistsError("destination already exists")
+        extension = normalized.rsplit(".", 1)[-1].casefold()
+        if extension not in {"stl", "obj", "3mf"}:
+            raise ValueError("unsupported model format")
+        content = stream.read()
+        asset = AssetRecord(
+            id=f"upload-{len(self._assets) + 1}", library_key=library_key, relative_path=normalized, format=extension,
+            byte_size=len(content), content=content,
+        )
+        self._assets[asset.id] = asset
+        self._record(actor_subject, "upload", asset.id)
+        return asset
+
     def list_audit(self) -> list[AuditRecord]:
         return list(self._audit)
 
@@ -306,6 +328,13 @@ class MoveRequest(BaseModel):
         return _safe_relative_path(value)
 
 
+def _safe_upload_filename(value: str | None) -> str:
+    normalized = _safe_relative_path(value or "")
+    if "/" in normalized:
+        raise ValueError("upload filename must not contain a path")
+    return normalized
+
+
 def _asset_payload(asset: AssetRecord) -> dict[str, object]:
     return {
         "id": asset.id,
@@ -316,6 +345,7 @@ def _asset_payload(asset: AssetRecord) -> dict[str, object]:
         "favorite": asset.favorite,
         "tags": sorted(asset.tags),
         "archived": asset.archived,
+        **({"byte_size": asset.byte_size} if asset.byte_size is not None else {}),
     }
 
 
@@ -378,6 +408,33 @@ def register_api(app: FastAPI, dependencies: ApiDependencies) -> APIRouter:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="invalid pagination")
         matches = dependencies.repository.list_assets(AssetQuery(q=q, favorite=favorite, library=library, tag=tag, format=format))
         return {"items": [_asset_payload(asset) for asset in matches[offset : offset + limit]], "total": len(matches), "limit": limit, "offset": offset}
+
+    @router.post("/uploads")
+    def upload_files(
+        library_key: str = Form(..., min_length=1, max_length=128),
+        files: list[UploadFile] = File(...),
+        actor: ApiActor = Depends(require("upload")),
+    ) -> dict[str, object]:
+        if library_key == "archive" or library_key not in {library.key for library in dependencies.repository.list_libraries()}:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="uploads require a writable library")
+        items: list[dict[str, object]] = []
+        rejected: list[dict[str, str]] = []
+        for uploaded in files:
+            try:
+                filename = _safe_upload_filename(uploaded.filename)
+                if filename.rsplit(".", 1)[-1].casefold() not in SUPPORTED_FORMATS:
+                    raise ValueError("unsupported_format")
+                asset = dependencies.repository.upload(library_key, filename, uploaded.file, actor_subject=actor.subject)
+            except FileExistsError:
+                rejected.append({"filename": uploaded.filename or "", "reason": "collision"})
+            except ValueError as error:
+                reason = "unsupported_format" if str(error) == "unsupported_format" else "invalid_file"
+                rejected.append({"filename": uploaded.filename or "", "reason": reason})
+            else:
+                items.append(_asset_payload(asset))
+            finally:
+                uploaded.file.close()
+        return {"items": items, "rejected": rejected}
 
     @router.get("/assets/{asset_id}")
     def asset_detail(asset_id: str, _: ApiActor = Depends(require("view"))) -> dict[str, object]:

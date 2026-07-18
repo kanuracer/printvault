@@ -13,8 +13,8 @@ services:
     security_opt:
       - no-new-privileges:true
     tmpfs:
-      - /tmp:mode=1777
-      - /var/cache/nginx:uid=99,gid=100,mode=0750
+      - /tmp:mode=1777,size=640m
+      - /var/cache/nginx:uid=99,gid=100,mode=0750,size=640m
     environment:
       PRINTVAULT_DATABASE_URL_FILE: "/run/secrets/printvault_database_url"
       PRINTVAULT_ENVIRONMENT: "production"

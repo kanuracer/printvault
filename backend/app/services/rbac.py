@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 VIEWER_CAPABILITIES = frozenset({"browse", "download", "view"})
-EDITOR_CAPABILITIES = VIEWER_CAPABILITIES | frozenset({"tag", "favorite", "move", "archive", "scan"})
+EDITOR_CAPABILITIES = VIEWER_CAPABILITIES | frozenset({"tag", "favorite", "move", "archive", "scan", "upload"})
 ADMIN_CAPABILITIES = EDITOR_CAPABILITIES | frozenset(
     {"permanent_delete", "library_config", "audit_access"}
 )

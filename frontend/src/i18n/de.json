@@ -38,6 +38,17 @@
     "assetMetaWithSize": "{{format}} · {{path}} · {{size}}",
     "fileSize": "{{size}} MB"
   },
+  "upload": {
+    "title": "Dateien hochladen",
+    "description": "STL, OBJ oder 3MF hier ablegen oder auswählen",
+    "dropLabel": "Dateien hier ablegen",
+    "inputLabel": "Modelle hochladen",
+    "uploading": "Dateien werden hochgeladen …",
+    "success_one": "{{count}} Datei erfolgreich hochgeladen",
+    "success_other": "{{count}} Dateien erfolgreich hochgeladen",
+    "partial": "{{uploaded}} hochgeladen, {{rejected}} abgelehnt",
+    "error": "Upload fehlgeschlagen. Bitte erneut versuchen."
+  },
   "inspector": {
     "label": "Details",
     "emptyTitle": "Modell auswählen",

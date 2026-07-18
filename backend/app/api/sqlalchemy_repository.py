@@ -7,8 +7,10 @@ to host files immediately before an I/O operation.
 
 from __future__ import annotations
 
+import os
 from collections.abc import Callable
 from pathlib import Path
+from typing import BinaryIO
 
 from sqlalchemy import Select, select
 from sqlalchemy.orm import Session, joinedload, selectinload, sessionmaker
@@ -16,8 +18,9 @@ from sqlalchemy.orm import Session, joinedload, selectinload, sessionmaker
 from app.api import AssetQuery, AssetRecord, AuditRecord, DownloadHandle, LibraryRecord, TagRecord
 from app.models import Asset, AuditEvent, Library, Tag
 from app.services.archive import ArchiveMetadata, ArchiveService
-from app.services.filesystem import FileActionResult, SafeFilesystem, UnsafePathError
+from app.services.filesystem import FileActionResult, PathCollisionError, SafeFilesystem, UnsafePathError
 from app.services.indexer import IndexedAsset
+from app.services.metadata import fingerprint_model, model_format
 
 _ARCHIVE_LIBRARY_KEY = "archive"
 _CONTENT_TYPES = {
@@ -161,6 +164,56 @@ class SQLAlchemyAssetRepository:
             session.delete(asset)
             return True
 
+    def upload(self, library_key: str, filename: str, stream: BinaryIO, *, actor_subject: str) -> AssetRecord:
+        if library_key == _ARCHIVE_LIBRARY_KEY:
+            raise ValueError("archive uploads are not allowed")
+        destination: Path | None = None
+        created = False
+        try:
+            with self._session_factory.begin() as session:
+                library = self._library(session, library_key)
+                if library is None:
+                    raise ValueError("unknown library")
+                destination = self._filesystem.prepare_destination(library, filename)
+                self._write_upload(stream, destination)
+                created = True
+                fingerprint = fingerprint_model(destination)
+                asset = Asset(
+                    library=library,
+                    relative_path=filename,
+                    format=model_format(destination),
+                    byte_size=fingerprint.byte_size,
+                    sha256=fingerprint.sha256,
+                )
+                session.add(asset)
+                session.flush()
+                self._audit(session, actor_subject, "upload", asset, {"filename": filename, "byte_size": fingerprint.byte_size})
+                return self._asset_record(asset)
+        except Exception:
+            if created and destination is not None:
+                destination.unlink(missing_ok=True)
+            raise
+
+    @staticmethod
+    def _write_upload(stream: BinaryIO, destination: Path, *, max_bytes: int = 512 * 1024 * 1024) -> None:
+        stream.seek(0)
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+        flags |= getattr(os, "O_NOFOLLOW", 0)
+        descriptor = os.open(destination, flags, 0o640)
+        written = 0
+        try:
+            with os.fdopen(descriptor, "wb") as output:
+                while chunk := stream.read(64 * 1024):
+                    written += len(chunk)
+                    if written > max_bytes:
+                        raise ValueError("upload exceeds configured limit")
+                    output.write(chunk)
+                output.flush()
+                os.fsync(output.fileno())
+        except Exception:
+            destination.unlink(missing_ok=True)
+            raise
+
     def list_audit(self) -> list[AuditRecord]:
         with self._session_factory() as session:
             events = session.scalars(select(AuditEvent).order_by(AuditEvent.id)).all()
@@ -250,6 +303,7 @@ class SQLAlchemyAssetRepository:
             favorite=asset.favorite,
             tags={tag.key for tag in asset.tags},
             archived=asset.library.key == _ARCHIVE_LIBRARY_KEY,
+            byte_size=asset.byte_size,
         )
 
     @staticmethod
