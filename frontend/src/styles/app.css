@@ -17,8 +17,8 @@ button, input, select { font: inherit; }
 button { cursor: pointer; }
 button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 
-.app-shell { display: grid; grid-template-columns: 244px minmax(0, 1fr) 296px; min-height: 100dvh; overflow: clip; }
-.sidebar, .inspector { background: var(--panel); }
+.app-shell { display: grid; grid-template-columns: 244px minmax(0, 1fr) 296px; height: 100dvh; min-height: 0; overflow: clip; }
+.sidebar, .inspector { background: var(--panel); min-height: 0; }
 .sidebar { border-right: 1px solid var(--border); padding: 20px 12px; display: flex; flex-direction: column; gap: 26px; }
 .brand { display: flex; align-items: center; gap: 10px; padding: 4px 8px; }
 .brand-mark { width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; color: #fff; background: linear-gradient(135deg, var(--accent), #8b81f5); box-shadow: 0 8px 24px color-mix(in srgb, var(--accent) 32%, transparent); }
@@ -31,13 +31,13 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .nav-item:hover { background: var(--surface-hover); color: var(--text-primary); }
 .nav-item.is-active { background: color-mix(in srgb, var(--accent) 15%, transparent); color: var(--text-primary); }
 .nav-bullet { width: 7px; height: 7px; border-radius: 50%; background: currentColor; opacity: .7; }
-.projects-nav { min-height: 0; }
+.projects-nav { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
 .nav-section-heading { align-items: center; display: flex; justify-content: space-between; margin: 0 8px 7px; }
 .nav-section-heading .nav-label { margin: 0; }
 .nav-add-button { background: transparent; border: 0; border-radius: 6px; color: var(--text-secondary); font-size: 19px; height: 26px; line-height: 1; padding: 0; width: 26px; }
 .nav-add-button:hover { background: var(--surface-hover); color: var(--text-primary); }
 .nav-count { color: var(--text-muted); font-size: 11px; margin-left: auto; }
-.sidebar-footer { margin-top: auto; display: grid; gap: 14px; padding: 8px; }
+.sidebar-footer { flex: 0 0 auto; margin-top: auto; display: grid; gap: 14px; padding: 8px; }
 .appearance { border: 0; border-top: 1px solid var(--border); padding-top: 16px; }
 .theme-options { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin-top: 8px; }
 .theme-option { position: relative; }
