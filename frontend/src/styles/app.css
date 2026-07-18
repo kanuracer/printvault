@@ -17,9 +17,9 @@ button, input, select { font: inherit; }
 button { cursor: pointer; }
 button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 
-.app-shell { display: grid; grid-template-columns: 244px minmax(0, 1fr) 296px; height: 100dvh; min-height: 0; overflow: clip; }
+.app-shell { display: grid; grid-template-columns: 244px minmax(0, 1fr) 296px; min-height: 100dvh; }
 .sidebar, .inspector { background: var(--panel); min-height: 0; }
-.sidebar { border-right: 1px solid var(--border); padding: 20px 12px; display: flex; flex-direction: column; gap: 26px; }
+.sidebar { border-right: 1px solid var(--border); display: flex; flex-direction: column; gap: 26px; height: 100dvh; padding: 20px 12px; position: sticky; top: 0; }
 .brand { display: flex; align-items: center; gap: 10px; padding: 4px 8px; }
 .brand-mark { width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; color: #fff; background: linear-gradient(135deg, var(--accent), #8b81f5); box-shadow: 0 8px 24px color-mix(in srgb, var(--accent) 32%, transparent); }
 .brand-copy { display: grid; gap: 1px; }
@@ -44,7 +44,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .theme-option input { position: absolute; opacity: 0; pointer-events: none; }
 .theme-option label { align-items: center; border: 1px solid transparent; border-radius: 6px; color: var(--text-muted); cursor: pointer; display: flex; font-size: 11px; justify-content: center; min-height: 30px; padding: 0 4px; }
 .theme-option input:checked + label { background: var(--surface); border-color: var(--border-strong); color: var(--text-primary); }
-.workspace { display: grid; grid-template-rows: auto minmax(0, 1fr); min-width: 0; }
+.workspace { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0; min-width: 0; }
 .topbar { align-items: center; border-bottom: 1px solid var(--border); display: flex; gap: 12px; min-height: 72px; padding: 12px 24px; }
 .search { align-items: center; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; display: flex; flex: 1; gap: 8px; max-width: 560px; padding: 0 11px; }
 .search-icon { color: var(--text-muted); flex: 0 0 auto; }
