@@ -49,7 +49,7 @@
       "file": "docs/slicer-helper-protocol.md",
       "summary": "Local native-slicer helper protocol and cross-platform installation.",
       "topics": ["slicer", "helper", "windows", "linux", "macos"],
-      "status": "planned"
+      "status": "active"
     }
   ]
 }
