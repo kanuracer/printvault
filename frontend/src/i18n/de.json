@@ -98,6 +98,9 @@
     "remove": "Aus Projekt entfernen",
     "removeFailed": "Projektzuweisung konnte nicht entfernt werden.",
     "filter": "Projektfilter",
+    "search": "Projekte durchsuchen",
+    "open": "Projekt öffnen",
+    "noMatches": "Keine passenden Projekte",
     "folder": "Ordner",
     "folderRoot": "Projektwurzel",
     "folderCreate": "Ordner erstellen",
@@ -111,7 +114,9 @@
     "key": "Tag-Schlüssel",
     "name": "Tag-Name",
     "save": "Tags speichern",
-    "filter": "Tagfilter"
+    "filter": "Tagfilter",
+    "search": "Tags durchsuchen",
+    "noMatches": "Keine passenden Tags"
   },
   "actions": {
     "save": "Speichern",

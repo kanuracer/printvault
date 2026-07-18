@@ -98,6 +98,9 @@
     "remove": "Remove from project",
     "removeFailed": "Project assignment could not be removed.",
     "filter": "Project filter",
+    "search": "Search projects",
+    "open": "Open project",
+    "noMatches": "No matching projects",
     "folder": "Folder",
     "folderRoot": "Project root",
     "folderCreate": "Create folder",
@@ -111,7 +114,9 @@
     "key": "Tag key",
     "name": "Tag name",
     "save": "Save tags",
-    "filter": "Tag filter"
+    "filter": "Tag filter",
+    "search": "Search tags",
+    "noMatches": "No matching tags"
   },
   "actions": {
     "save": "Save",
