@@ -12,7 +12,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from io import BytesIO
 from pathlib import PurePosixPath, PureWindowsPath
-from typing import BinaryIO, Protocol
+from typing import BinaryIO, Literal, Protocol
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, FastAPI, File, Form, HTTPException, Request, UploadFile, status
@@ -117,6 +117,10 @@ class AssetRepository(Protocol):
 
     def list_libraries(self) -> list[LibraryRecord]: ...
 
+    def get_appearance_preference(self, subject: str) -> str | None: ...
+
+    def set_appearance_preference(self, subject: str, appearance: str) -> str: ...
+
     def list_assets(self, query: AssetQuery) -> list[AssetRecord]: ...
 
     def get_asset(self, asset_id: str) -> AssetRecord | None: ...
@@ -176,6 +180,7 @@ class InMemoryAssetRepository:
         self._assets = {asset.id: asset for asset in assets}
         self._tags = {tag.key: tag for tag in tags}
         self._projects: dict[str, ProjectRecord] = {}
+        self._appearance_preferences: dict[str, str] = {}
         self._audit: list[AuditRecord] = []
 
     @classmethod
@@ -208,6 +213,13 @@ class InMemoryAssetRepository:
 
     def list_libraries(self) -> list[LibraryRecord]:
         return sorted(self._libraries.values(), key=lambda library: library.key)
+
+    def get_appearance_preference(self, subject: str) -> str | None:
+        return self._appearance_preferences.get(subject)
+
+    def set_appearance_preference(self, subject: str, appearance: str) -> str:
+        self._appearance_preferences[subject] = appearance
+        return appearance
 
     def list_assets(self, query: AssetQuery) -> list[AssetRecord]:
         assets = list(self._assets.values())
@@ -416,6 +428,12 @@ class TagAssignment(BaseModel):
     tag_keys: list[str] = Field(min_length=1, max_length=64)
 
 
+class AppearancePreferenceUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    appearance: Literal["dark", "light", "system"]
+
+
 class ProjectCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -535,6 +553,17 @@ def register_api(app: FastAPI, dependencies: ApiDependencies) -> APIRouter:
             return actor
 
         return dependency
+
+    @router.get("/preferences/appearance")
+    def get_appearance_preference(actor: ApiActor = Depends(require("browse"))) -> dict[str, str]:
+        return {"appearance": dependencies.repository.get_appearance_preference(actor.subject) or "dark"}
+
+    @router.put("/preferences/appearance")
+    def set_appearance_preference(
+        payload: AppearancePreferenceUpdate, actor: ApiActor = Depends(require("browse"))
+    ) -> dict[str, str]:
+        appearance = dependencies.repository.set_appearance_preference(actor.subject, payload.appearance)
+        return {"appearance": appearance}
 
     @router.get("/projects")
     def projects(_: ApiActor = Depends(require("browse"))) -> dict[str, list[dict[str, object]]]:

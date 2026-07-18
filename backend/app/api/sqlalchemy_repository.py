@@ -17,7 +17,7 @@ from sqlalchemy import Select, select
 from sqlalchemy.orm import Session, joinedload, selectinload, sessionmaker
 
 from app.api import AssetQuery, AssetRecord, AuditRecord, DownloadHandle, LibraryRecord, ProjectFolderRecord, ProjectRecord, TagRecord
-from app.models import Asset, AuditEvent, Library, Project, ProjectAsset, ProjectFolder, Tag
+from app.models import Asset, AuditEvent, Library, Project, ProjectAsset, ProjectFolder, Tag, UserPreference
 from app.services.archive import ArchiveMetadata, ArchiveService
 from app.services.filesystem import FileActionResult, PathCollisionError, SafeFilesystem, UnsafePathError
 from app.services.indexer import IndexedAsset
@@ -71,6 +71,25 @@ class SQLAlchemyAssetRepository:
         with self._session_factory() as session:
             libraries = session.scalars(select(Library).where(Library.key.in_(("models", "archive"))).order_by(Library.key)).all()
             return [LibraryRecord(key=library.key, name=library.key.replace("_", " ").title()) for library in libraries]
+
+    def get_appearance_preference(self, subject: str) -> str | None:
+        with self._session_factory() as session:
+            preference = session.scalar(
+                select(UserPreference).where(UserPreference.subject == subject, UserPreference.key == "appearance")
+            )
+            appearance = preference.value.get("appearance") if preference is not None and isinstance(preference.value, dict) else None
+            return appearance if appearance in {"dark", "light", "system"} else None
+
+    def set_appearance_preference(self, subject: str, appearance: str) -> str:
+        with self._session_factory.begin() as session:
+            preference = session.scalar(
+                select(UserPreference).where(UserPreference.subject == subject, UserPreference.key == "appearance")
+            )
+            if preference is None:
+                session.add(UserPreference(subject=subject, key="appearance", value={"appearance": appearance}))
+            else:
+                preference.value = {"appearance": appearance}
+        return appearance
 
     def list_assets(self, query: AssetQuery) -> list[AssetRecord]:
         with self._session_factory() as session:

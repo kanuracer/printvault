@@ -1,4 +1,5 @@
 export type UserRole = 'viewer' | 'editor' | 'admin'
+export type AppearancePreference = 'dark' | 'light' | 'system'
 
 export type CurrentUser = {
   subject: string
@@ -132,6 +133,19 @@ export async function getCurrentUser(): Promise<CurrentUser> {
   const role = stringValue(payload.role)
   if (!subject || !role || !['viewer', 'editor', 'admin'].includes(role)) throw new ApiError(500)
   return { subject, role: role as UserRole }
+}
+
+function appearancePreferenceFromJson(payload: unknown): AppearancePreference {
+  if (!isObject(payload) || !['dark', 'light', 'system'].includes(payload.appearance as string)) throw new ApiError(500)
+  return payload.appearance as AppearancePreference
+}
+
+export async function getAppearancePreference(): Promise<AppearancePreference> {
+  return appearancePreferenceFromJson(await request('/api/preferences/appearance'))
+}
+
+export async function setAppearancePreference(appearance: AppearancePreference): Promise<AppearancePreference> {
+  return appearancePreferenceFromJson(await requestMutation('/api/preferences/appearance', 'PUT', { appearance }))
 }
 
 export async function getLibraries(): Promise<Library[]> {

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import './i18n'
-import { ApiError, archiveAsset, assetDownloadUrl, assignProjectAsset, createProject, createProjectFolder, createTag, deleteAsset, getAsset, getAssets, getCurrentUser, getLibraries, getProjects, getTags, removeProjectAsset, restoreAsset, setAssetTags, uploadAssetThumbnail, uploadFiles, type Asset, type Library, type Project, type ProjectFolder, type Tag, type UserRole } from './api'
+import { ApiError, archiveAsset, assetDownloadUrl, assignProjectAsset, createProject, createProjectFolder, createTag, deleteAsset, getAppearancePreference, getAsset, getAssets, getCurrentUser, getLibraries, getProjects, getTags, removeProjectAsset, restoreAsset, setAppearancePreference, setAssetTags, uploadAssetThumbnail, uploadFiles, type Asset, type Library, type Project, type ProjectFolder, type Tag, type UserRole } from './api'
 import { ModelViewer } from './features/viewer/ModelViewer'
 import { AssetThumbnail } from './features/viewer/AssetThumbnail'
 import type { ViewerSource } from './features/viewer/viewerSource'
@@ -179,6 +179,7 @@ export default function App() {
   const [uploadMessage, setUploadMessage] = useState<string | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
   const thumbnailInput = useRef<HTMLInputElement>(null)
+  const appearanceMutation = useRef(0)
 
   const loadWorkspace = () => {
     let cancelled = false
@@ -192,6 +193,13 @@ export default function App() {
         if (cancelled) return
         setRole(user.role)
         setAuthState('authenticated')
+        void getAppearancePreference()
+          .then((serverPreference) => {
+            if (cancelled || appearanceMutation.current !== 0) return
+            saveThemePreference(serverPreference)
+            setPreference(serverPreference)
+          })
+          .catch(() => undefined)
         try {
           const [nextLibraries, nextAssets, nextProjects, nextTags] = await Promise.all([getLibraries(), getAssets(), getProjects(), getTags()])
           if (cancelled) return
@@ -262,8 +270,22 @@ export default function App() {
   }, [mobileInspectorOpen, mobileSidebarOpen])
 
   const selectAppearance = (nextPreference: ThemePreference) => {
+    const previousPreference = preference
+    const mutation = appearanceMutation.current + 1
+    appearanceMutation.current = mutation
     saveThemePreference(nextPreference)
     setPreference(nextPreference)
+    void setAppearancePreference(nextPreference)
+      .then((serverPreference) => {
+        if (appearanceMutation.current !== mutation || serverPreference === nextPreference) return
+        saveThemePreference(serverPreference)
+        setPreference(serverPreference)
+      })
+      .catch(() => {
+        if (appearanceMutation.current !== mutation) return
+        saveThemePreference(previousPreference)
+        setPreference(previousPreference)
+      })
   }
 
   const activeProjectRecord = useMemo(() => projects.find((project) => project.id === activeProject) ?? null, [activeProject, projects])

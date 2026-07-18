@@ -100,6 +100,21 @@ def test_production_create_app_registers_real_api_routes_before_the_server_start
     assert "/api/assets" in {route.path for route in app.routes}
 
 
+def test_appearance_preference_is_persisted_per_authenticated_subject(tmp_path: Path) -> None:
+    settings = production_settings(tmp_path)
+
+    with TestClient(create_app(settings), base_url="https://printvault.example.test") as client:
+        client.cookies.set("printvault_session", signed_session(settings, subject="desktop-user", role="viewer"))
+        assert client.get("/api/preferences/appearance").json() == {"appearance": "dark"}
+        assert client.put("/api/preferences/appearance", json={"appearance": "light"}).json() == {"appearance": "light"}
+
+        client.cookies.set("printvault_session", signed_session(settings, subject="phone-user", role="viewer"))
+        assert client.get("/api/preferences/appearance").json() == {"appearance": "dark"}
+
+        client.cookies.set("printvault_session", signed_session(settings, subject="desktop-user", role="viewer"))
+        assert client.get("/api/preferences/appearance").json() == {"appearance": "light"}
+
+
 def test_startup_indexes_supported_files_from_configured_library_roots(tmp_path: Path) -> None:
     settings = production_settings(tmp_path)
     model = settings.library_models_root / "parts" / "bracket.stl"

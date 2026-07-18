@@ -17,9 +17,11 @@ const jsonResponse = (body: unknown, status = 200) => new Response(JSON.stringif
   headers: { 'Content-Type': 'application/json' },
 })
 
-const authenticatedResponses = (assets: unknown, detail = assets, role: 'viewer' | 'editor' | 'admin' = 'viewer') => (input: RequestInfo | URL) => {
+const authenticatedResponses = (assets: unknown, detail = assets, role: 'viewer' | 'editor' | 'admin' = 'viewer') => (input: RequestInfo | URL, init?: RequestInit) => {
   const url = String(input)
   if (url === '/api/auth/me') return Promise.resolve(jsonResponse({ subject: 'user-1', role }))
+  if (url === '/api/preferences/appearance' && init?.method === 'PUT') return Promise.resolve(jsonResponse(JSON.parse(init.body as string)))
+  if (url === '/api/preferences/appearance') return Promise.resolve(jsonResponse({ appearance: 'dark' }))
   if (url === '/api/libraries') return Promise.resolve(jsonResponse({ items: [{ key: 'models', name: 'Modelle' }] }))
   if (url === '/api/assets') return Promise.resolve(jsonResponse({ items: assets, total: Array.isArray(assets) ? assets.length : 0 }))
   if (url === '/api/projects') return Promise.resolve(jsonResponse({ items: [] }))
@@ -60,6 +62,31 @@ describe('PrintVault authenticated asset library', () => {
     expect(await screen.findByText('Du hast keinen Zugriff auf PrintVault.')).toBeVisible()
     expect(screen.getByRole('link', { name: 'Erneut anmelden' })).toHaveAttribute('href', '/api/auth/login')
     expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('loads and saves the appearance preference through the authenticated API', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url === '/api/auth/me') return Promise.resolve(jsonResponse({ subject: 'user-1', role: 'viewer' }))
+      if (url === '/api/preferences/appearance' && !init?.method) return Promise.resolve(jsonResponse({ appearance: 'light' }))
+      if (url === '/api/preferences/appearance' && init?.method === 'PUT') return Promise.resolve(jsonResponse({ appearance: 'dark' }))
+      if (url === '/api/libraries') return Promise.resolve(jsonResponse({ items: [] }))
+      if (url === '/api/assets') return Promise.resolve(jsonResponse({ items: [] }))
+      if (url === '/api/projects') return Promise.resolve(jsonResponse({ items: [] }))
+      if (url === '/api/tags') return Promise.resolve(jsonResponse({ items: [] }))
+      return Promise.reject(new Error(`Unexpected request: ${url}`))
+    })
+    const user = userEvent.setup()
+
+    render(<App />)
+
+    await waitFor(() => expect(document.documentElement.dataset.theme).toBe('light'))
+    await user.click(screen.getByLabelText('Dunkel'))
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/preferences/appearance', expect.objectContaining({
+      method: 'PUT', body: JSON.stringify({ appearance: 'dark' }),
+    })))
+    expect(document.documentElement.dataset.theme).toBe('dark')
   })
 
   it('does not expose the legacy filesystem projects library as a model library', async () => {
