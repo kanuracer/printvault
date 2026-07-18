@@ -166,6 +166,12 @@ export async function assignProjectAsset(projectId: string, assetId: string, fol
   return project
 }
 
+export async function removeProjectAsset(projectId: string, assetId: string): Promise<Project> {
+  const project = projectFromJson(await requestMutation(`/api/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(assetId)}`, 'DELETE'))
+  if (!project) throw new ApiError(500)
+  return project
+}
+
 export async function createProjectFolder(projectId: string, name: string, parentId: string | null): Promise<ProjectFolder> {
   const payload = await requestMutation(`/api/projects/${encodeURIComponent(projectId)}/folders`, 'POST', { name, parent_id: parentId })
   if (!isObject(payload)) throw new ApiError(500)

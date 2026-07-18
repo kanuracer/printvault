@@ -131,6 +131,8 @@ class AssetRepository(Protocol):
 
     def assign_project_asset(self, project_id: str, asset_id: str, *, folder_id: str | None = None, actor_subject: str) -> ProjectRecord | None: ...
 
+    def remove_project_asset(self, project_id: str, asset_id: str, *, actor_subject: str) -> ProjectRecord | None: ...
+
     def create_project_folder(self, project_id: str, name: str, parent_id: str | None, *, actor_subject: str) -> ProjectFolderRecord | None: ...
 
     def set_tags(self, asset_id: str, tag_keys: set[str], *, actor_subject: str) -> AssetRecord | None: ...
@@ -240,13 +242,29 @@ class InMemoryAssetRepository:
         self._record(actor_subject, "create_project", None)
         return project
 
-    def assign_project_asset(self, project_id: str, asset_id: str, *, actor_subject: str) -> ProjectRecord | None:
+    def assign_project_asset(self, project_id: str, asset_id: str, *, folder_id: str | None = None, actor_subject: str) -> ProjectRecord | None:
         project = self._projects.get(project_id)
         if project is None or asset_id not in self._assets:
             return None
         updated = ProjectRecord(id=project.id, name=project.name, description=project.description, asset_ids=tuple(sorted({*project.asset_ids, asset_id})))
         self._projects[project_id] = updated
         self._record(actor_subject, "assign_project_asset", asset_id)
+        return updated
+
+    def remove_project_asset(self, project_id: str, asset_id: str, *, actor_subject: str) -> ProjectRecord | None:
+        project = self._projects.get(project_id)
+        if project is None or asset_id not in self._assets:
+            return None
+        updated = ProjectRecord(
+            id=project.id,
+            name=project.name,
+            description=project.description,
+            asset_ids=tuple(asset for asset in project.asset_ids if asset != asset_id),
+            folders=project.folders,
+            asset_folder_ids={key: value for key, value in project.asset_folder_ids.items() if key != asset_id},
+        )
+        self._projects[project_id] = updated
+        self._record(actor_subject, "remove_project_asset", asset_id)
         return updated
 
     def set_tags(self, asset_id: str, tag_keys: set[str], *, actor_subject: str) -> AssetRecord | None:
@@ -543,6 +561,13 @@ def register_api(app: FastAPI, dependencies: ApiDependencies) -> APIRouter:
     @router.put("/projects/{project_id}/assets/{asset_id}")
     def assign_project_asset(project_id: str, asset_id: str, payload: ProjectAssetAssignment = ProjectAssetAssignment(), actor: ApiActor = Depends(require("project"))) -> dict[str, object]:
         project = dependencies.repository.assign_project_asset(project_id, asset_id, folder_id=payload.folder_id, actor_subject=actor.subject)
+        if project is None:
+            _not_found()
+        return _project_payload(project)
+
+    @router.delete("/projects/{project_id}/assets/{asset_id}")
+    def remove_project_asset(project_id: str, asset_id: str, actor: ApiActor = Depends(require("project"))) -> dict[str, object]:
+        project = dependencies.repository.remove_project_asset(project_id, asset_id, actor_subject=actor.subject)
         if project is None:
             _not_found()
         return _project_payload(project)

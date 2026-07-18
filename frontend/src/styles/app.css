@@ -124,6 +124,12 @@ h1 { font-size: clamp(25px, 3vw, 32px); font-weight: 590; letter-spacing: -.7px;
 .project-card h2, .project-folders h2 { font-size: 16px; margin: 0; }
 .project-card p { color: var(--text-secondary); font-size: 13px; margin: 0; }
 .project-card span { color: var(--text-muted); font-size: 12px; }
+.library-filters { border: 1px solid var(--border); border-radius: 10px; display: grid; gap: 12px; margin: 0 0 18px; padding: 13px; }
+.library-filters > div { display: grid; gap: 7px; }
+.library-filters > div > span { color: var(--text-secondary); font-size: 12px; }
+.filter-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.filter-chip { background: var(--surface); border: 1px solid var(--border); border-radius: 999px; color: var(--text-secondary); font: inherit; font-size: 12px; min-height: 30px; padding: 4px 9px; }
+.filter-chip:hover, .filter-chip.is-active { background: color-mix(in srgb, var(--accent) 18%, var(--surface)); border-color: var(--accent); color: var(--text-primary); }
 .folder-breadcrumbs { align-items: center; color: var(--text-muted); display: flex; flex-wrap: wrap; font-size: 12px; gap: 6px; margin: 0 0 7px; }
 .folder-breadcrumb-segment { align-items: center; display: inline-flex; gap: 6px; }
 .folder-breadcrumbs button { background: transparent; border: 0; color: var(--accent-text); padding: 0; }
@@ -142,8 +148,11 @@ h1 { font-size: clamp(25px, 3vw, 32px); font-weight: 590; letter-spacing: -.7px;
 .folder-chip, .project-badge { background: color-mix(in srgb, var(--accent) 12%, var(--surface)); border: 1px solid color-mix(in srgb, var(--accent) 36%, var(--border)); border-radius: 999px; color: var(--text-secondary); font-size: 11px; padding: 4px 8px; }
 .project-badges { margin-top: 9px; }
 .project-assignments { display: grid; gap: 7px; }
-.project-assignment { display: grid; gap: 7px; grid-template-columns: 1fr; }
+.project-assignment { display: grid; gap: 7px; grid-template-columns: minmax(0, 1fr) auto; }
 .project-assignment .project-pill { width: 100%; }
+.project-assignment .folder-picker { grid-column: 1 / -1; }
+.project-remove { align-self: center; background: transparent; border: 1px solid var(--border); border-radius: 6px; color: var(--text-secondary); font-size: 18px; height: 34px; line-height: 1; width: 34px; }
+.project-remove:hover { border-color: #d45555; color: #e06b6b; }
 .project-assignment select { max-width: none; }
 .project-assignment select option { background: var(--surface); color: var(--text-primary); }
 .folder-picker { min-width: 0; position: relative; }

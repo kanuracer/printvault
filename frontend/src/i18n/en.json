@@ -94,6 +94,10 @@
     "assign": "Assign project",
     "assigned": "“{{asset}}” was assigned to “{{project}}”.",
     "assignFailed": "Project assignment failed.",
+    "removed": "“{{asset}}” was removed from “{{project}}”.",
+    "remove": "Remove from project",
+    "removeFailed": "Project assignment could not be removed.",
+    "filter": "Project filter",
     "folder": "Folder",
     "folderRoot": "Project root",
     "folderCreate": "Create folder",
@@ -106,7 +110,8 @@
     "create": "Create tag",
     "key": "Tag key",
     "name": "Tag name",
-    "save": "Save tags"
+    "save": "Save tags",
+    "filter": "Tag filter"
   },
   "actions": {
     "save": "Save",

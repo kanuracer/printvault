@@ -266,6 +266,21 @@ def test_editor_creates_a_logical_project_and_assigns_an_existing_model(tmp_path
     }]
 
 
+
+def test_editor_removes_a_model_from_a_logical_project(tmp_path: Path) -> None:
+    settings = production_settings(tmp_path)
+    with TestClient(create_app(settings), base_url="https://printvault.example.test") as client:
+        asset = add_asset(settings, library_key="models", relative_path="parts/bracket.stl")
+        client.cookies.set("printvault_session", signed_session(settings, subject="editor-1", role="editor"))
+        project = client.post("/api/projects", json={"name": "Werkbank", "description": "Ersatzteile"}).json()
+        client.put(f"/api/projects/{project['id']}/assets/{asset.id}")
+        removed = client.delete(f"/api/projects/{project['id']}/assets/{asset.id}")
+
+    assert removed.status_code == 200
+    assert removed.json()["asset_ids"] == []
+    assert removed.json()["asset_folder_ids"] == {}
+
+
 def test_editor_creates_nested_logical_project_folders_and_assigns_a_model(tmp_path: Path) -> None:
     settings = production_settings(tmp_path)
     with TestClient(create_app(settings), base_url="https://printvault.example.test") as client:

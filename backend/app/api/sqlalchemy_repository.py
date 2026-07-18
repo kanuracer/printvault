@@ -159,6 +159,21 @@ class SQLAlchemyAssetRepository:
             session.flush()
             return self._project_record(project)
 
+    def remove_project_asset(self, project_id: str, asset_id: str, *, actor_subject: str) -> ProjectRecord | None:
+        with self._session_factory.begin() as session:
+            project = self._get_project(session, project_id)
+            asset = self._get_asset(session, asset_id)
+            if project is None or asset is None:
+                return None
+            link = next((link for link in project.asset_links if link.asset_id == asset.id), None)
+            if link is None:
+                return self._project_record(project)
+            project.asset_links.remove(link)
+            self._audit(session, actor_subject, "remove_project_asset", asset, {"project_id": str(project.id)})
+            session.flush()
+            session.expire(project, ["assets", "asset_links"])
+            return self._project_record(project)
+
     def set_tags(self, asset_id: str, tag_keys: set[str], *, actor_subject: str) -> AssetRecord | None:
         with self._session_factory.begin() as session:
             asset = self._get_asset(session, asset_id)

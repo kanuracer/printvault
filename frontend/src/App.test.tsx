@@ -271,6 +271,31 @@ describe('PrintVault authenticated asset library', () => {
     expect(screen.queryByRole('button', { name: /Folder\.stl/i })).not.toBeInTheDocument()
   })
 
+  it('filters all models by project and tag toggles', async () => {
+    const alpha = { id: 'alpha', library_key: 'models', relative_path: 'alpha.stl', filename: 'Alpha.stl', format: 'stl', tags: ['functional'] }
+    const beta = { id: 'beta', library_key: 'models', relative_path: 'beta.stl', filename: 'Beta.stl', format: 'stl', tags: ['decorative'] }
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url === '/api/auth/me') return Promise.resolve(jsonResponse({ subject: 'viewer-1', role: 'viewer' }))
+      if (url === '/api/libraries') return Promise.resolve(jsonResponse({ items: [{ key: 'models', name: 'Modelle' }] }))
+      if (url === '/api/assets') return Promise.resolve(jsonResponse({ items: [alpha, beta] }))
+      if (url === '/api/projects') return Promise.resolve(jsonResponse({ items: [{ id: 'project-1', name: 'Werkbank', description: '', asset_ids: ['alpha'], folders: [], asset_folder_ids: {} }] }))
+      if (url === '/api/tags') return Promise.resolve(jsonResponse({ items: [{ key: 'functional', name: 'Funktional' }, { key: 'decorative', name: 'Dekorativ' }] }))
+      return Promise.reject(new Error(`Unexpected request: ${url}`))
+    })
+    const user = userEvent.setup()
+
+    render(<App />)
+    expect(await screen.findByRole('button', { name: 'Alpha.stl' })).toBeVisible()
+    await user.click(screen.getByRole('button', { name: 'Projektfilter: Werkbank' }))
+    expect(screen.getByRole('button', { name: 'Alpha.stl' })).toBeVisible()
+    expect(screen.queryByRole('button', { name: 'Beta.stl' })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Tagfilter: Funktional' }))
+    expect(screen.getByRole('button', { name: 'Alpha.stl' })).toBeVisible()
+  })
+
+
   it('renders the localized asset loading failure without demo content', async () => {
     const fetchMock = vi.mocked(fetch)
     fetchMock.mockImplementation((input: RequestInfo | URL) => {
@@ -316,6 +341,7 @@ describe('PrintVault authenticated asset library', () => {
       if (url === '/api/tags') return Promise.resolve(jsonResponse({ items: [] }))
       if (url === '/api/assets/asset-1') return Promise.resolve(jsonResponse(archiveMode ? archived : asset))
       if (url === '/api/projects/project-1/assets/asset-1' && init?.method === 'PUT') return Promise.resolve(jsonResponse({ id: 'project-1', name: 'Drucker', description: '', asset_ids: ['asset-1'] }))
+      if (url === '/api/projects/project-1/assets/asset-1' && init?.method === 'DELETE') return Promise.resolve(jsonResponse({ id: 'project-1', name: 'Drucker', description: '', asset_ids: [] }))
       if (url === '/api/assets/asset-1/tags' && init?.method === 'PUT') return Promise.resolve(jsonResponse({ ...asset, tags: ['functional'] }))
       if (url === '/api/assets/asset-1/archive') {
         archiveMode = true
@@ -342,6 +368,8 @@ describe('PrintVault authenticated asset library', () => {
     await user.click(screen.getByLabelText('Funktional'))
     await user.click(screen.getByRole('button', { name: 'Tags speichern' }))
     await user.click(screen.getByRole('button', { name: 'Drucker Projekt zuweisen' }))
+    await user.click(await screen.findByRole('button', { name: 'Drucker Aus Projekt entfernen' }))
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/projects/project-1/assets/asset-1', expect.objectContaining({ method: 'DELETE' })))
     await user.click(screen.getByRole('button', { name: 'Archivieren' }))
     await user.click(screen.getByRole('button', { name: 'Archiv' }))
     await user.click(await screen.findByRole('button', { name: /Widget\.stl/i }))
