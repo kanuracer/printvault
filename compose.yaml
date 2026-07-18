@@ -1,0 +1,46 @@
+services:
+  printvault:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ${PRINTVAULT_IMAGE:-printvault:local}
+    container_name: ${PRINTVAULT_CONTAINER_NAME:-printvault}
+    user: "99:100"
+    restart: unless-stopped
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:mode=1777,size=640m
+      - /var/cache/nginx:uid=99,gid=100,mode=0750,size=640m
+    env_file:
+      - .env
+    environment:
+      PRINTVAULT_DATABASE_URL_FILE: /run/secrets/database_url
+      PRINTVAULT_OIDC_CLIENT_ID_FILE: /run/secrets/oidc_client_id
+      PRINTVAULT_OIDC_CLIENT_SECRET_FILE: /run/secrets/oidc_client_secret
+      PRINTVAULT_SESSION_SECRET_FILE: /run/secrets/session_secret
+    volumes:
+      - ${PRINTVAULT_MODELS_DIR:-./models}:/libraries/models:rw
+      - ${PRINTVAULT_ARCHIVE_DIR:-./archive}:/libraries/archive:rw
+      - ${PRINTVAULT_DATA_DIR:-./data}:/var/lib/printvault:rw
+      - ${PRINTVAULT_THUMBNAILS_DIR:-./thumbnails}:/var/lib/printvault/thumbnails:rw
+      - ${PRINTVAULT_SECRETS_DIR:-./secrets}/database_url:/run/secrets/database_url:ro
+      - ${PRINTVAULT_SECRETS_DIR:-./secrets}/oidc_client_id:/run/secrets/oidc_client_id:ro
+      - ${PRINTVAULT_SECRETS_DIR:-./secrets}/oidc_client_secret:/run/secrets/oidc_client_secret:ro
+      - ${PRINTVAULT_SECRETS_DIR:-./secrets}/session_secret:/run/secrets/session_secret:ro
+    ports:
+      - "127.0.0.1:${PRINTVAULT_PORT:-8080}:8080"
+    healthcheck:
+      test:
+        - CMD
+        - python3
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=3).read()"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+

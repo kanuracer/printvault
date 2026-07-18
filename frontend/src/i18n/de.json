@@ -1,0 +1,133 @@
+{
+  "app": {
+    "name": "PrintVault",
+    "tagline": "3D-Modellbibliothek"
+  },
+  "auth": {
+    "loading": "Sitzung wird geprüft",
+    "signInTitle": "Bei PrintVault anmelden",
+    "signInDescription": "Melde dich mit deinem Organisationskonto an, um auf die Modellbibliothek zuzugreifen.",
+    "signIn": "Anmelden",
+    "signInAgain": "Erneut anmelden",
+    "accessDeniedTitle": "Zugriff verweigert",
+    "accessDeniedDescription": "Du hast keinen Zugriff auf PrintVault.",
+    "sessionErrorTitle": "Sitzung konnte nicht geprüft werden",
+    "sessionErrorDescription": "Deine Sitzung konnte nicht geprüft werden. Bitte versuche es erneut.",
+    "retry": "Erneut versuchen"
+  },
+  "navigation": {
+    "libraries": "Bibliotheken",
+    "allAssets": "Alle Modelle"
+  },
+  "topbar": {
+    "searchLabel": "Modelle durchsuchen",
+    "searchPlaceholder": "Modelle, Tags und Dateien durchsuchen",
+    "menu": "Navigation öffnen",
+    "inspector": "Details öffnen"
+  },
+  "content": {
+    "eyebrow": "Bibliothek",
+    "title": "Modelle",
+    "resultCount_one": "{{count}} Modell",
+    "resultCount_other": "{{count}} Modelle",
+    "loading": "Modelle werden geladen",
+    "emptyTitle": "Noch keine Modelle",
+    "emptyDescription": "Neue Modelle erscheinen hier, sobald sie verfügbar sind.",
+    "error": "Modelle konnten nicht geladen werden.",
+    "retry": "Erneut versuchen",
+    "assetMeta": "{{format}} · {{path}}",
+    "assetMetaWithSize": "{{format}} · {{path}} · {{size}}",
+    "fileSize": "{{size}} MB"
+  },
+  "upload": {
+    "title": "Dateien hochladen",
+    "description": "STL, OBJ oder 3MF hier ablegen oder auswählen",
+    "dropLabel": "Dateien hier ablegen",
+    "inputLabel": "Modelle hochladen",
+    "uploading": "Dateien werden hochgeladen …",
+    "success_one": "{{count}} Datei erfolgreich hochgeladen",
+    "success_other": "{{count}} Dateien erfolgreich hochgeladen",
+    "partial": "{{uploaded}} hochgeladen, {{rejected}} abgelehnt",
+    "error": "Upload fehlgeschlagen. Bitte erneut versuchen."
+  },
+  "inspector": {
+    "label": "Details",
+    "emptyTitle": "Modell auswählen",
+    "emptyDescription": "Wähle ein Modell aus der Bibliothek, um Details zu sehen.",
+    "loading": "Modelldetails werden geladen",
+    "error": "Modelldetails konnten nicht geladen werden.",
+    "format": "Format",
+    "path": "Pfad",
+    "size": "Dateigröße",
+    "download": "Herunterladen"
+  },
+  "appearance": {
+    "label": "Darstellung",
+    "dark": "Dunkel",
+    "light": "Hell",
+    "system": "System"
+  },
+  "viewer": {
+    "loading": "Modell wird geladen",
+    "unsupported": "Nicht unterstütztes Modell",
+    "oversized": "Die Modelldatei ist zu groß",
+    "parseFailure": "Das Modell konnte nicht gelesen werden",
+    "resetView": "Ansicht zurücksetzen",
+    "wireframe": "Drahtgitter",
+    "grid": "Raster",
+    "axes": "Achsen"
+  },
+  "metadata": {
+    "title": "3MF-Informationen",
+    "instructions": "Anleitungen",
+    "binaryDocument": "Dieses Dokument ist enthalten, kann aber nicht als Text angezeigt werden."
+  },
+  "thumbnail": {
+    "upload": "Eigenes Vorschaubild"
+  },
+
+  "projects": {
+    "title": "Projekte",
+    "add": "Projekt hinzufügen",
+    "create": "Projekt erstellen",
+    "name": "Projektname",
+    "description": "Beschreibung",
+    "assign": "Projekt zuweisen",
+    "assigned": "„{{asset}}“ wurde „{{project}}“ zugewiesen.",
+    "assignFailed": "Projektzuweisung fehlgeschlagen.",
+    "removed": "„{{asset}}“ wurde aus „{{project}}“ entfernt.",
+    "remove": "Aus Projekt entfernen",
+    "removeFailed": "Projektzuweisung konnte nicht entfernt werden.",
+    "filter": "Projektfilter",
+    "search": "Projekte durchsuchen",
+    "open": "Projekt öffnen",
+    "noMatches": "Keine passenden Projekte",
+    "folder": "Ordner",
+    "folderRoot": "Projektwurzel",
+    "folderCreate": "Ordner erstellen",
+    "folderName": "Neuer Ordner",
+    "folderParent": "Übergeordneter Ordner",
+    "folderCreated": "Ordner erstellt.",
+    "folderCreateFailed": "Ordner konnte nicht erstellt werden."
+  },
+  "tags": {
+    "create": "Tag erstellen",
+    "key": "Tag-Schlüssel",
+    "name": "Tag-Name",
+    "save": "Tags speichern",
+    "filter": "Tagfilter",
+    "search": "Tags durchsuchen",
+    "noMatches": "Keine passenden Tags"
+  },
+  "actions": {
+    "save": "Speichern",
+    "cancel": "Abbrechen",
+    "close": "Schließen",
+    "archive": "Archivieren",
+    "delete": "Endgültig löschen",
+    "archiveConfirm": "„{{name}}“ ins Archiv verschieben?",
+    "restore": "Wiederherstellen",
+    "restoreConfirm": "„{{name}}“ an den ursprünglichen Speicherort wiederherstellen?",
+    "deleteConfirm": "„{{name}}“ endgültig löschen? Dieser Vorgang kann nicht rückgängig gemacht werden."
+  }
+}

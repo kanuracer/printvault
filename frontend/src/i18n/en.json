@@ -1,0 +1,133 @@
+{
+  "app": {
+    "name": "PrintVault",
+    "tagline": "3D model library"
+  },
+  "auth": {
+    "loading": "Checking your session",
+    "signInTitle": "Sign in to PrintVault",
+    "signInDescription": "Sign in with your organization account to access the model library.",
+    "signIn": "Sign in",
+    "signInAgain": "Sign in again",
+    "accessDeniedTitle": "Access denied",
+    "accessDeniedDescription": "You do not have access to PrintVault.",
+    "sessionErrorTitle": "Session check failed",
+    "sessionErrorDescription": "Your session could not be checked. Please try again.",
+    "retry": "Try again"
+  },
+  "navigation": {
+    "libraries": "Libraries",
+    "allAssets": "All models"
+  },
+  "topbar": {
+    "searchLabel": "Search models",
+    "searchPlaceholder": "Search models, tags, and files",
+    "menu": "Open navigation",
+    "inspector": "Open details"
+  },
+  "content": {
+    "eyebrow": "Library",
+    "title": "Models",
+    "resultCount_one": "{{count}} model",
+    "resultCount_other": "{{count}} models",
+    "loading": "Loading models",
+    "emptyTitle": "No models yet",
+    "emptyDescription": "New models will appear here when they are available.",
+    "error": "Models could not be loaded.",
+    "retry": "Try again",
+    "assetMeta": "{{format}} · {{path}}",
+    "assetMetaWithSize": "{{format}} · {{path}} · {{size}}",
+    "fileSize": "{{size}} MB"
+  },
+  "upload": {
+    "title": "Upload files",
+    "description": "Drop STL, OBJ, or 3MF files here, or choose them",
+    "dropLabel": "Drop files here",
+    "inputLabel": "Upload models",
+    "uploading": "Uploading files …",
+    "success_one": "{{count}} file uploaded successfully",
+    "success_other": "{{count}} files uploaded successfully",
+    "partial": "{{uploaded}} uploaded, {{rejected}} rejected",
+    "error": "Upload failed. Please try again."
+  },
+  "inspector": {
+    "label": "Details",
+    "emptyTitle": "Select a model",
+    "emptyDescription": "Select a model from the library to see its details.",
+    "loading": "Loading model details",
+    "error": "Model details could not be loaded.",
+    "format": "Format",
+    "path": "Path",
+    "size": "File size",
+    "download": "Download"
+  },
+  "appearance": {
+    "label": "Appearance",
+    "dark": "Dark",
+    "light": "Light",
+    "system": "System"
+  },
+  "viewer": {
+    "loading": "Loading model",
+    "unsupported": "Unsupported model",
+    "oversized": "The model file is too large",
+    "parseFailure": "The model could not be parsed",
+    "resetView": "Reset view",
+    "wireframe": "Wireframe",
+    "grid": "Grid",
+    "axes": "Axes"
+  },
+  "metadata": {
+    "title": "3MF information",
+    "instructions": "Instructions",
+    "binaryDocument": "This document is included but cannot be shown as text."
+  },
+  "thumbnail": {
+    "upload": "Custom thumbnail"
+  },
+
+  "projects": {
+    "title": "Projects",
+    "add": "Add project",
+    "create": "Create project",
+    "name": "Project name",
+    "description": "Description",
+    "assign": "Assign project",
+    "assigned": "“{{asset}}” was assigned to “{{project}}”.",
+    "assignFailed": "Project assignment failed.",
+    "removed": "“{{asset}}” was removed from “{{project}}”.",
+    "remove": "Remove from project",
+    "removeFailed": "Project assignment could not be removed.",
+    "filter": "Project filter",
+    "search": "Search projects",
+    "open": "Open project",
+    "noMatches": "No matching projects",
+    "folder": "Folder",
+    "folderRoot": "Project root",
+    "folderCreate": "Create folder",
+    "folderName": "New folder",
+    "folderParent": "Parent folder",
+    "folderCreated": "Folder created.",
+    "folderCreateFailed": "Folder could not be created."
+  },
+  "tags": {
+    "create": "Create tag",
+    "key": "Tag key",
+    "name": "Tag name",
+    "save": "Save tags",
+    "filter": "Tag filter",
+    "search": "Search tags",
+    "noMatches": "No matching tags"
+  },
+  "actions": {
+    "save": "Save",
+    "cancel": "Cancel",
+    "close": "Close",
+    "archive": "Archive",
+    "delete": "Delete permanently",
+    "archiveConfirm": "Move “{{name}}” to archive?",
+    "restore": "Restore",
+    "restoreConfirm": "Restore “{{name}}” to its original location?",
+    "deleteConfirm": "Delete “{{name}}” permanently? This cannot be undone."
+  }
+}

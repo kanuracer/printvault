@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "project": "printvault",
+  "documents": [
+    {
+      "id": "deployment",
+      "file": "docs/deployment.md",
+      "summary": "Public Docker, OIDC and reverse-proxy deployment guide."
+    },
+    {
+      "id": "security",
+      "file": "docs/security.md",
+      "summary": "Authentication, secret handling, network exposure and vulnerability reporting."
+    },
+    {
+      "id": "slicer-helper",
+      "file": "docs/slicer-helper-protocol.md",
+      "summary": "Optional local native-slicer helper protocol."
+    }
+  ]
+}
