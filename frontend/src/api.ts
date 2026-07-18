@@ -15,6 +15,14 @@ export type Project = {
   name: string
   description: string
   assetIds: string[]
+  folders: ProjectFolder[]
+  assetFolderIds: Record<string, string>
+}
+
+export type ProjectFolder = {
+  id: string
+  name: string
+  parentId: string | null
 }
 
 export type Tag = {
@@ -80,7 +88,14 @@ function projectFromJson(value: unknown): Project | null {
   const name = stringValue(value.name)
   const description = typeof value.description === 'string' ? value.description : ''
   if (!id || !name || !Array.isArray(value.asset_ids)) return null
-  return { id, name, description, assetIds: value.asset_ids.filter((item): item is string => typeof item === 'string') }
+  const folders = Array.isArray(value.folders) ? value.folders.flatMap((folder) => {
+    if (!isObject(folder)) return []
+    const folderId = stringValue(folder.id)
+    const folderName = stringValue(folder.name)
+    return folderId && folderName && (folder.parent_id === null || typeof folder.parent_id === 'string') ? [{ id: folderId, name: folderName, parentId: folder.parent_id }] : []
+  }) : []
+  const assetFolderIds = isObject(value.asset_folder_ids) ? Object.fromEntries(Object.entries(value.asset_folder_ids).filter((entry): entry is [string, string] => typeof entry[1] === 'string')) : {}
+  return { id, name, description, assetIds: value.asset_ids.filter((item): item is string => typeof item === 'string'), folders, assetFolderIds }
 }
 
 function tagFromJson(value: unknown): Tag | null {
@@ -145,10 +160,19 @@ export async function createProject(name: string, description: string): Promise<
   return project
 }
 
-export async function assignProjectAsset(projectId: string, assetId: string): Promise<Project> {
-  const project = projectFromJson(await requestMutation(`/api/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(assetId)}`, 'PUT'))
+export async function assignProjectAsset(projectId: string, assetId: string, folderId: string | null = null): Promise<Project> {
+  const project = projectFromJson(await requestMutation(`/api/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(assetId)}`, 'PUT', { folder_id: folderId }))
   if (!project) throw new ApiError(500)
   return project
+}
+
+export async function createProjectFolder(projectId: string, name: string, parentId: string | null): Promise<ProjectFolder> {
+  const payload = await requestMutation(`/api/projects/${encodeURIComponent(projectId)}/folders`, 'POST', { name, parent_id: parentId })
+  if (!isObject(payload)) throw new ApiError(500)
+  const id = stringValue(payload.id)
+  const folderName = stringValue(payload.name)
+  if (!id || !folderName || (payload.parent_id !== null && typeof payload.parent_id !== 'string')) throw new ApiError(500)
+  return { id, name: folderName, parentId: payload.parent_id }
 }
 
 export async function getTags(): Promise<Tag[]> {
@@ -226,6 +250,16 @@ export async function restoreAsset(id: string): Promise<Asset> {
 
 export async function deleteAsset(id: string): Promise<void> {
   await requestMutation(`/api/assets/${encodeURIComponent(id)}`, 'DELETE')
+}
+
+export async function uploadAssetThumbnail(id: string, image: File): Promise<Asset> {
+  const body = new FormData()
+  body.append('image', image, image.name)
+  const response = await fetch(`/api/assets/${encodeURIComponent(id)}/thumbnail`, { method: 'POST', credentials: 'same-origin', headers: { Accept: 'application/json' }, body })
+  if (!response.ok) throw new ApiError(response.status)
+  const asset = assetFromJson(await response.json())
+  if (!asset) throw new ApiError(500)
+  return asset
 }
 
 export function assetThumbnailUrl(id: string): string {

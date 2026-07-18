@@ -9,7 +9,7 @@ Self-hosted organizer for 3D-print files. Runs as a Docker/Dockhand web app on U
 - STL, OBJ and 3MF browser preview
 - MariaDB production support and SQLite development support
 - OIDC-only access with `printvault_admin`, `printvault_editor`, `printvault_viewer`
-- Native slicer launch through optional local helper; universal download fallback
+
 - German and English UI via i18n locale files
 
 ## Security model
@@ -27,6 +27,7 @@ Browser → printvault.kanuracer.de → reverse proxy → Docker web_net → pri
 ```
 
 Compose must not declare `ports:` or `expose:` for PrintVault. The reverse proxy resolves `printvault` through the shared external `web_net` Docker network.
+
 
 ## Development
 

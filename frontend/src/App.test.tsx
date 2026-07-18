@@ -149,6 +149,29 @@ describe('PrintVault authenticated asset library', () => {
     )
   })
 
+
+  it('lets an editor upload a manual image thumbnail for a selected model', async () => {
+    const asset = { id: 'asset-1', library_key: 'models', relative_path: 'Widget.stl', filename: 'Widget.stl', format: 'stl', tags: [], favorite: false, archived: false }
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url === '/api/auth/me') return Promise.resolve(jsonResponse({ subject: 'editor-1', role: 'editor' }))
+      if (url === '/api/libraries') return Promise.resolve(jsonResponse({ items: [{ key: 'models', name: 'Modelle' }] }))
+      if (url === '/api/assets') return Promise.resolve(jsonResponse({ items: [asset] }))
+      if (url === '/api/projects' || url === '/api/tags') return Promise.resolve(jsonResponse({ items: [] }))
+      if (url === '/api/assets/asset-1') return Promise.resolve(jsonResponse(asset))
+      if (url === '/api/assets/asset-1/thumbnail' && init?.method === 'POST') return Promise.resolve(jsonResponse(asset))
+      return Promise.reject(new Error(`Unexpected request: ${url}`))
+    })
+    const user = userEvent.setup()
+
+    render(<App />)
+    await user.click(await screen.findByRole('button', { name: /Widget\.stl/i }))
+    await user.upload(await screen.findByLabelText('Eigenes Vorschaubild'), new File(['\u0089PNG\r\n\u001a\nimage'], 'thumb.png', { type: 'image/png' }))
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/assets/asset-1/thumbnail', expect.objectContaining({ method: 'POST' })))
+  })
+
   it('renders the localized empty state for an authenticated library with no assets', async () => {
     vi.mocked(fetch).mockImplementation(authenticatedResponses([]))
 
@@ -156,6 +179,29 @@ describe('PrintVault authenticated asset library', () => {
 
     expect(await screen.findByText('Noch keine Modelle')).toBeVisible()
     expect(screen.getByText('Neue Modelle erscheinen hier, sobald sie verfügbar sind.')).toBeVisible()
+  })
+
+  it('shows project models after a library filter was previously selected', async () => {
+    const asset = { id: 'asset-1', library_key: 'models', relative_path: 'Widget.stl', filename: 'Widget.stl', format: 'stl', tags: [], favorite: false, archived: false }
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url === '/api/auth/me') return Promise.resolve(jsonResponse({ subject: 'user-1', role: 'viewer' }))
+      if (url === '/api/libraries') return Promise.resolve(jsonResponse({ items: [{ key: 'models', name: 'Modelle' }, { key: 'archive', name: 'Archiv' }] }))
+      if (url === '/api/assets?library=archive') return Promise.resolve(jsonResponse({ items: [] }))
+      if (url === '/api/assets') return Promise.resolve(jsonResponse({ items: [asset] }))
+      if (url === '/api/projects') return Promise.resolve(jsonResponse({ items: [{ id: 'project-1', name: 'Drucker', description: '', asset_ids: ['asset-1'] }] }))
+      if (url === '/api/tags') return Promise.resolve(jsonResponse({ items: [] }))
+      return Promise.reject(new Error(`Unexpected request: ${url}`))
+    })
+    const user = userEvent.setup()
+
+    render(<App />)
+    await user.click(await screen.findByRole('button', { name: 'Archiv' }))
+    expect(await screen.findByText('Noch keine Modelle')).toBeVisible()
+    await user.click(screen.getByRole('button', { name: /^Drucker\b/ }))
+
+    expect(await screen.findByRole('button', { name: /Widget\.stl/i })).toBeVisible()
   })
 
   it('renders the localized asset loading failure without demo content', async () => {
@@ -219,6 +265,8 @@ describe('PrintVault authenticated asset library', () => {
     await user.click(await screen.findByRole('button', { name: 'Projekt erstellen' }))
     await user.type(screen.getByLabelText('Projektname'), 'Drucker')
     await user.click(screen.getByRole('button', { name: 'Speichern' }))
+    expect(await screen.findByRole('navigation', { name: 'Projekte' })).toBeVisible()
+    expect(screen.getByRole('button', { name: /^Drucker\b/ })).toBeVisible()
     await user.click(screen.getByRole('button', { name: /Widget\.stl/i }))
     await user.click(await screen.findByRole('button', { name: 'Tag erstellen' }))
     await user.type(screen.getByLabelText('Tag-Schlüssel'), 'functional')
@@ -226,7 +274,7 @@ describe('PrintVault authenticated asset library', () => {
     await user.click(screen.getByRole('button', { name: 'Speichern' }))
     await user.click(screen.getByLabelText('Funktional'))
     await user.click(screen.getByRole('button', { name: 'Tags speichern' }))
-    await user.selectOptions(screen.getByLabelText('Projekt zuweisen'), 'project-1')
+    await user.click(screen.getByRole('button', { name: 'Drucker Projekt zuweisen' }))
     await user.click(screen.getByRole('button', { name: 'Archivieren' }))
     await user.click(screen.getByRole('button', { name: 'Archiv' }))
     await user.click(await screen.findByRole('button', { name: /Widget\.stl/i }))

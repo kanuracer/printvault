@@ -1,14 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import './i18n'
-import { ApiError, archiveAsset, assetDownloadUrl, assignProjectAsset, createProject, createTag, deleteAsset, getAsset, getAssets, getCurrentUser, getLibraries, getProjects, getTags, restoreAsset, setAssetTags, uploadFiles, type Asset, type Library, type Project, type Tag, type UserRole } from './api'
+import { ApiError, archiveAsset, assetDownloadUrl, assignProjectAsset, createProject, createProjectFolder, createTag, deleteAsset, getAsset, getAssets, getCurrentUser, getLibraries, getProjects, getTags, restoreAsset, setAssetTags, uploadAssetThumbnail, uploadFiles, type Asset, type Library, type Project, type Tag, type UserRole } from './api'
 import { ModelViewer } from './features/viewer/ModelViewer'
 import { AssetThumbnail } from './features/viewer/AssetThumbnail'
 import type { ViewerSource } from './features/viewer/viewerSource'
 import { applyTheme, readThemePreference, saveThemePreference, type ThemePreference } from './theme'
 
 const appearanceOptions: ThemePreference[] = ['dark', 'light', 'system']
-
 type AuthState = 'loading' | 'authenticated' | 'unauthenticated' | 'denied' | 'error'
 type AssetState = 'loading' | 'ready' | 'error'
 type SelectionState = 'idle' | 'loading' | 'ready' | 'error'
@@ -32,6 +31,17 @@ function assetViewerSource(asset: Asset): ViewerSource {
 
 function byteSizeInMegabytes(byteSize: number): string {
   return new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 }).format(byteSize / (1024 * 1024))
+}
+
+function humanReadableText(value: string): string {
+  let decoded = value
+  for (let index = 0; index < 2; index += 1) {
+    const document = new DOMParser().parseFromString(decoded, 'text/html')
+    const next = document.documentElement.textContent ?? decoded
+    if (next === decoded) break
+    decoded = next
+  }
+  return decoded
 }
 
 function threeMfCore(asset: Asset): Array<[string, string]> {
@@ -68,17 +78,25 @@ export default function App() {
   const [tagFormOpen, setTagFormOpen] = useState(false)
   const [projectName, setProjectName] = useState('')
   const [projectDescription, setProjectDescription] = useState('')
+  const [folderName, setFolderName] = useState('')
+  const [folderParentId, setFolderParentId] = useState<string | null>(null)
+  const [folderMessage, setFolderMessage] = useState<string | null>(null)
   const [tagKey, setTagKey] = useState('')
   const [tagName, setTagName] = useState('')
   const [selectedTagKeys, setSelectedTagKeys] = useState<string[]>([])
   const [activeLibrary, setActiveLibrary] = useState<string | null>(null)
+  const [activeProject, setActiveProject] = useState<string | null>(null)
+  const [showProjects, setShowProjects] = useState(false)
   const [search, setSearch] = useState('')
   const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null)
   const [selectionState, setSelectionState] = useState<SelectionState>('idle')
   const [uploading, setUploading] = useState(false)
   const [isDragging, setIsDragging] = useState(false)
+
+  const [thumbnailRevision, setThumbnailRevision] = useState(0)
   const [uploadMessage, setUploadMessage] = useState<string | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
+  const thumbnailInput = useRef<HTMLInputElement>(null)
 
   const loadWorkspace = () => {
     let cancelled = false
@@ -134,14 +152,17 @@ export default function App() {
     setPreference(nextPreference)
   }
 
+  const activeProjectAssetIds = useMemo(() => new Set(projects.find((project) => project.id === activeProject)?.assetIds ?? []), [activeProject, projects])
+
   const visibleAssets = useMemo(() => {
     const term = search.trim().toLocaleLowerCase()
     return assets.filter((asset) => {
       if (activeLibrary && asset.libraryKey !== activeLibrary) return false
+      if (activeProject && !activeProjectAssetIds.has(asset.id)) return false
       if (!term) return true
       return [asset.filename, asset.relativePath, ...asset.tags].some((value) => value.toLocaleLowerCase().includes(term))
     })
-  }, [activeLibrary, assets, search])
+  }, [activeLibrary, activeProject, activeProjectAssetIds, assets, search])
 
   const canUpload = role === 'editor' || role === 'admin'
   const uploadLibrary = activeLibrary && activeLibrary !== 'archive'
@@ -169,6 +190,8 @@ export default function App() {
 
   const chooseLibrary = async (libraryKey: string | null) => {
     setActiveLibrary(libraryKey)
+    setActiveProject(null)
+    setShowProjects(false)
     setSelectedAsset(null)
     setSelectionState('idle')
     setAssetState('loading')
@@ -176,6 +199,29 @@ export default function App() {
       setAssets(await getAssets(libraryKey))
       setAssetState('ready')
     } catch { setAssetState('error') }
+  }
+
+  const chooseProject = async (projectId: string) => {
+    setActiveProject(projectId)
+    setActiveLibrary(null)
+    setShowProjects(false)
+    setSelectedAsset(null)
+    setSelectionState('idle')
+    setAssetState('loading')
+    try {
+      setAssets(await getAssets())
+      setAssetState('ready')
+    } catch {
+      setAssetState('error')
+    }
+  }
+
+  const chooseProjects = () => {
+    setActiveProject(null)
+    setActiveLibrary(null)
+    setShowProjects(true)
+    setSelectedAsset(null)
+    setSelectionState('idle')
   }
 
   const submitProject = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -187,6 +233,18 @@ export default function App() {
       setProjectDescription('')
       setProjectFormOpen(false)
     } catch { setAssetState('error') }
+  }
+
+  const submitProjectFolder = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!activeProject || !folderName.trim()) return
+    try {
+      const folder = await createProjectFolder(activeProject, folderName.trim(), folderParentId)
+      setProjects((current) => current.map((project) => project.id === activeProject ? { ...project, folders: [...project.folders, folder] } : project))
+      setFolderName('')
+      setFolderParentId(null)
+      setFolderMessage('Ordner erstellt.')
+    } catch { setFolderMessage('Ordner konnte nicht erstellt werden.') }
   }
 
   const submitTag = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -249,6 +307,22 @@ export default function App() {
     } catch { setSelectionState('error') }
   }
 
+  const uploadSelectedThumbnail = async (files: FileList | null) => {
+    const image = files?.item(0)
+    if (!selectedAsset || !image) return
+    try {
+      const updated = await uploadAssetThumbnail(selectedAsset.id, image)
+      setAssets((current) => current.map((asset) => asset.id === updated.id ? updated : asset))
+      setSelectedAsset(updated)
+      setThumbnailRevision((current) => current + 1)
+    } catch {
+      setSelectionState('error')
+    } finally {
+      if (thumbnailInput.current) thumbnailInput.current.value = ''
+    }
+  }
+
+
   const deleteSelectedAsset = async () => {
     if (!selectedAsset || !window.confirm(t('actions.deleteConfirm', { name: selectedAsset.filename }))) return
     try {
@@ -306,6 +380,11 @@ export default function App() {
           </div>
         </nav>
 
+        <nav aria-label={t('projects.title')} className="projects-nav">
+          <div className="nav-section-heading"><button className="nav-label nav-section-button" onClick={chooseProjects} type="button">{t('projects.title')}</button>{canUpload && <button aria-label={t('projects.add')} className="nav-add-button" onClick={() => setProjectFormOpen(true)} type="button">+</button>}</div>
+          <div className="library-nav">{projects.map((project) => <button className={`nav-item ${activeProject === project.id ? 'is-active' : ''}`} key={project.id} onClick={() => void chooseProject(project.id)} type="button"><span className="nav-bullet" />{project.name}<span className="nav-count">{project.assetIds.length}</span></button>)}</div>
+        </nav>
+
         <fieldset className="appearance sidebar-footer">
           <legend className="nav-label">{t('appearance.label')}</legend>
           <div className="theme-options">
@@ -325,15 +404,17 @@ export default function App() {
         <section aria-label={t('content.title')} className="content">
           <div className="content-header"><div><p className="section-label">{t('content.eyebrow')}</p><h1>{t('content.title')}</h1>{assetState === 'ready' && <p className="result-count">{t('content.resultCount', { count: visibleAssets.length })}</p>}</div>{canUpload && <button className="primary-button" onClick={() => setProjectFormOpen(true)} type="button">{t('projects.create')}</button>}</div>
           {projectFormOpen && <form aria-label={t('projects.create')} className="inline-form" onSubmit={submitProject}><label>{t('projects.name')}<input autoFocus onChange={(event) => setProjectName(event.target.value)} required value={projectName} /></label><label>{t('projects.description')}<textarea onChange={(event) => setProjectDescription(event.target.value)} value={projectDescription} /></label><div className="form-actions"><button className="ghost-button" onClick={() => setProjectFormOpen(false)} type="button">{t('actions.cancel')}</button><button className="primary-button" type="submit">{t('actions.save')}</button></div></form>}
-          {canUpload && uploadLibrary && <div aria-label={t('upload.dropLabel')} className={`upload-dropzone ${isDragging ? 'is-dragging' : ''}`} onClick={() => fileInput.current?.click()} onDragEnter={(event) => { event.preventDefault(); setIsDragging(true) }} onDragLeave={(event) => { event.preventDefault(); setIsDragging(false) }} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); setIsDragging(false); void handleUpload(event.dataTransfer.files) }} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); fileInput.current?.click() } }} role="button" tabIndex={0}>
+          {activeProject && canUpload && <section className="asset-info project-folders"><h2>Projektordner</h2><form className="inline-form" onSubmit={submitProjectFolder}><label>Neuer Ordner<input onChange={(event) => setFolderName(event.target.value)} required value={folderName} /></label><label>Übergeordneter Ordner<select onChange={(event) => setFolderParentId(event.target.value || null)} value={folderParentId ?? ''}><option value="">Projektwurzel</option>{(projects.find((project) => project.id === activeProject)?.folders ?? []).map((folder) => <option key={folder.id} value={folder.id}>{folder.name}</option>)}</select></label><button className="primary-button" type="submit">Ordner erstellen</button></form>{folderMessage && <p role="status">{folderMessage}</p>}<div className="tags">{(projects.find((project) => project.id === activeProject)?.folders ?? []).map((folder) => <span className="tag" key={folder.id}>{folder.parentId ? '↳ ' : ''}{folder.name}</span>)}</div></section>}
+          {!showProjects && canUpload && uploadLibrary && <div aria-label={t('upload.dropLabel')} className={`upload-dropzone ${isDragging ? 'is-dragging' : ''}`} onClick={() => fileInput.current?.click()} onDragEnter={(event) => { event.preventDefault(); setIsDragging(true) }} onDragLeave={(event) => { event.preventDefault(); setIsDragging(false) }} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); setIsDragging(false); void handleUpload(event.dataTransfer.files) }} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); fileInput.current?.click() } }} role="button" tabIndex={0}>
             <input accept=".stl,.obj,.3mf" aria-label={t('upload.inputLabel')} className="visually-hidden" multiple onChange={(event) => void handleUpload(event.currentTarget.files ?? [])} ref={fileInput} type="file" />
             <strong>{uploading ? t('upload.uploading') : t('upload.title')}</strong><span>{t('upload.description')}</span>
           </div>}
           {uploadMessage && <p className="upload-message" role="status">{uploadMessage}</p>}
-          {assetState === 'loading' && <p role="status">{t('content.loading')}</p>}
-          {assetState === 'error' && <div className="content-state" role="alert"><p>{t('content.error')}</p><button className="ghost-button" onClick={loadWorkspace} type="button">{t('content.retry')}</button></div>}
+          {showProjects && <div className="project-grid">{projects.map((project) => <button className="project-card" key={project.id} onClick={() => void chooseProject(project.id)} type="button"><h2>{project.name}</h2>{project.description && <p>{project.description}</p>}<span>{t('content.resultCount', { count: project.assetIds.length })}</span></button>)}</div>}
+          {!showProjects && assetState === 'loading' && <p role="status">{t('content.loading')}</p>}
+          {!showProjects && assetState === 'error' && <div className="content-state" role="alert"><p>{t('content.error')}</p><button className="ghost-button" onClick={loadWorkspace} type="button">{t('content.retry')}</button></div>}
           {assetState === 'ready' && visibleAssets.length === 0 && <div className="content-state"><h2>{t('content.emptyTitle')}</h2><p>{t('content.emptyDescription')}</p></div>}
-          {assetState === 'ready' && visibleAssets.length > 0 && <div aria-busy="false" className="asset-grid">{visibleAssets.map((asset) => <article className="asset-card" key={asset.id}><button aria-label={asset.filename} className="asset-card-button" onClick={() => void selectAsset(asset.id)} type="button"><div className="asset-preview"><AssetThumbnail assetId={asset.id} /></div><div className="asset-body"><h2 className="asset-name">{asset.filename}</h2><p className="asset-meta">{asset.byteSize === undefined ? t('content.assetMeta', { format: asset.format.toUpperCase(), path: asset.relativePath }) : t('content.assetMetaWithSize', { format: asset.format.toUpperCase(), path: asset.relativePath, size: t('content.fileSize', { size: byteSizeInMegabytes(asset.byteSize) }) })}</p><div className="tags">{asset.tags.map((tag) => <span className="tag" key={tag}>{tag}</span>)}</div></div></button></article>)}</div>}
+          {assetState === 'ready' && visibleAssets.length > 0 && <div aria-busy="false" className="asset-grid">{visibleAssets.map((asset) => <article className="asset-card" key={asset.id}><button aria-label={asset.filename} className="asset-card-button" onClick={() => void selectAsset(asset.id)} type="button"><div className="asset-preview"><AssetThumbnail assetId={asset.id} revision={thumbnailRevision} /></div><div className="asset-body"><h2 className="asset-name">{asset.filename}</h2><p className="asset-meta">{asset.byteSize === undefined ? t('content.assetMeta', { format: asset.format.toUpperCase(), path: asset.relativePath }) : t('content.assetMetaWithSize', { format: asset.format.toUpperCase(), path: asset.relativePath, size: t('content.fileSize', { size: byteSizeInMegabytes(asset.byteSize) }) })}</p><div className="tags">{asset.tags.map((tag) => <span className="tag" key={tag}>{tag}</span>)}</div></div></button></article>)}</div>}
         </section>
       </main>
 
@@ -342,7 +423,7 @@ export default function App() {
         {selectionState === 'idle' && <div className="content-state"><h2 className="inspector-title">{t('inspector.emptyTitle')}</h2><p>{t('inspector.emptyDescription')}</p></div>}
         {selectionState === 'loading' && <p role="status">{t('inspector.loading')}</p>}
         {selectionState === 'error' && <p role="alert">{t('inspector.error')}</p>}
-        {selectedAsset && <><ModelViewer source={assetViewerSource(selectedAsset)} /><h2 className="inspector-title">{selectedAsset.filename}</h2><div className="tags">{selectedAsset.tags.map((tag) => <span className="tag" key={tag}>{tag}</span>)}</div><div className="stats"><div className="stat"><span className="stat-label">{t('inspector.format')}</span><span className="stat-value">{selectedAsset.format.toUpperCase()}</span></div><div className="stat"><span className="stat-label">{t('inspector.path')}</span><span className="stat-value">{selectedAsset.relativePath}</span></div>{selectedAsset.byteSize !== undefined && <div className="stat"><span className="stat-label">{t('inspector.size')}</span><span className="stat-value">{t('content.fileSize', { size: byteSizeInMegabytes(selectedAsset.byteSize) })}</span></div>}</div>{threeMfCore(selectedAsset).length > 0 && <section className="asset-info"><h3>{t('metadata.title')}</h3>{threeMfCore(selectedAsset).map(([key, value]) => <p key={key}><strong>{key}:</strong> {value}</p>)}</section>}{threeMfDocuments(selectedAsset).length > 0 && <section className="asset-info"><h3>{t('metadata.instructions')}</h3>{threeMfDocuments(selectedAsset).map((document) => <details key={document.label}><summary>{document.label}</summary>{document.text ? <pre>{document.text}</pre> : <p>{t('metadata.binaryDocument')}</p>}</details>)}</section>}<section className="asset-management">{canUpload && <><label>{t('projects.assign')}<select aria-label={t('projects.assign')} defaultValue="" onChange={(event) => void assignSelectedProject(event.target.value)}><option disabled value="">{t('projects.assign')}</option>{projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label><div className="tag-management"><div className="management-heading"><h3>{t('tags.create')}</h3><button className="ghost-button" onClick={() => setTagFormOpen(true)} type="button">{t('tags.create')}</button></div>{tags.map((tag) => <label className="tag-option" key={tag.key}><input checked={selectedTagKeys.includes(tag.key)} onChange={(event) => setSelectedTagKeys((current) => event.target.checked ? [...new Set([...current, tag.key])] : current.filter((key) => key !== tag.key))} type="checkbox" />{tag.name}</label>)}{tags.length > 0 && <button className="ghost-button full-width" onClick={() => void saveSelectedTags()} type="button">{t('tags.save')}</button>}</div></>}</section>{tagFormOpen && <form aria-label={t('tags.create')} className="inline-form" onSubmit={submitTag}><label>{t('tags.key')}<input onChange={(event) => setTagKey(event.target.value)} pattern="[a-z0-9][a-z0-9-]*" required value={tagKey} /></label><label>{t('tags.name')}<input onChange={(event) => setTagName(event.target.value)} required value={tagName} /></label><div className="form-actions"><button className="ghost-button" onClick={() => setTagFormOpen(false)} type="button">{t('actions.cancel')}</button><button className="primary-button" type="submit">{t('actions.save')}</button></div></form>}<a className="primary-button full-width" href={assetDownloadUrl(selectedAsset.id)}>{t('inspector.download')}</a>{canUpload && !selectedAsset.archived && <button className="ghost-button full-width" onClick={() => void archiveSelectedAsset()} type="button">{t('actions.archive')}</button>}{canUpload && selectedAsset.archived && <button className="ghost-button full-width" onClick={() => void restoreSelectedAsset()} type="button">{t('actions.restore')}</button>}{role === 'admin' && <button className="danger-button full-width" onClick={() => void deleteSelectedAsset()} type="button">{t('actions.delete')}</button>}</>}
+        {selectedAsset && <><a className="primary-button full-width" href={assetDownloadUrl(selectedAsset.id)}>{t('inspector.download')}</a><ModelViewer source={assetViewerSource(selectedAsset)} /><h2 className="inspector-title">{selectedAsset.filename}</h2><div className="tags">{selectedAsset.tags.map((tag) => <span className="tag" key={tag}>{tag}</span>)}</div><div className="stats"><div className="stat"><span className="stat-label">{t('inspector.format')}</span><span className="stat-value">{selectedAsset.format.toUpperCase()}</span></div><div className="stat"><span className="stat-label">{t('inspector.path')}</span><span className="stat-value">{selectedAsset.relativePath}</span></div>{selectedAsset.byteSize !== undefined && <div className="stat"><span className="stat-label">{t('inspector.size')}</span><span className="stat-value">{t('content.fileSize', { size: byteSizeInMegabytes(selectedAsset.byteSize) })}</span></div>}</div>{threeMfCore(selectedAsset).length > 0 && <section className="asset-info"><h3>{t('metadata.title')}</h3>{threeMfCore(selectedAsset).map(([key, value]) => <p key={key}><strong>{key}:</strong> {value}</p>)}</section>}{threeMfDocuments(selectedAsset).length > 0 && <section className="asset-info"><h3>{t('metadata.instructions')}</h3>{threeMfDocuments(selectedAsset).map((document) => <details key={document.label}><summary>{document.label}</summary>{document.text ? <pre>{humanReadableText(document.text)}</pre> : <p>{t('metadata.binaryDocument')}</p>}</details>)}</section>}<section className="asset-management">{canUpload && <><div aria-label={t('projects.assign')} className="project-picker"><span>{t('projects.assign')}</span><div className="project-pills">{projects.map((project) => <button aria-label={`${project.name} ${t('projects.assign')}`} className="project-pill" key={project.id} onClick={() => void assignSelectedProject(project.id)} type="button">{project.name}</button>)}</div></div><div className="tag-management"><div className="management-heading"><h3>{t('tags.create')}</h3><button className="ghost-button" onClick={() => setTagFormOpen(true)} type="button">{t('tags.create')}</button></div>{tags.map((tag) => <label className="tag-option" key={tag.key}><input checked={selectedTagKeys.includes(tag.key)} onChange={(event) => setSelectedTagKeys((current) => event.target.checked ? [...new Set([...current, tag.key])] : current.filter((key) => key !== tag.key))} type="checkbox" />{tag.name}</label>)}{tags.length > 0 && <button className="ghost-button full-width" onClick={() => void saveSelectedTags()} type="button">{t('tags.save')}</button>}</div></>}</section>{canUpload && <section className="thumbnail-upload"><h3>{t('thumbnail.upload')}</h3><input accept="image/png,image/jpeg,image/webp" aria-label={t('thumbnail.upload')} className="visually-hidden" onChange={(event) => void uploadSelectedThumbnail(event.currentTarget.files)} ref={thumbnailInput} type="file" /><button className="ghost-button full-width" onClick={() => thumbnailInput.current?.click()} type="button">{t('thumbnail.upload')}</button></section>}{tagFormOpen && <form aria-label={t('tags.create')} className="inline-form" onSubmit={submitTag}><label>{t('tags.key')}<input onChange={(event) => setTagKey(event.target.value)} pattern="[a-z0-9][a-z0-9-]*" required value={tagKey} /></label><label>{t('tags.name')}<input onChange={(event) => setTagName(event.target.value)} required value={tagName} /></label><div className="form-actions"><button className="ghost-button" onClick={() => setTagFormOpen(false)} type="button">{t('actions.cancel')}</button><button className="primary-button" type="submit">{t('actions.save')}</button></div></form>}{canUpload && !selectedAsset.archived && <button className="ghost-button full-width" onClick={() => void archiveSelectedAsset()} type="button">{t('actions.archive')}</button>}{canUpload && selectedAsset.archived && <button className="ghost-button full-width" onClick={() => void restoreSelectedAsset()} type="button">{t('actions.restore')}</button>}{role === 'admin' && <button className="danger-button full-width" onClick={() => void deleteSelectedAsset()} type="button">{t('actions.delete')}</button>}</>}
       </aside>
     </div>
   )

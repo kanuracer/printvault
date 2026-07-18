@@ -21,6 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.services.rbac import ROLE_CAPABILITIES
 from app.services.metadata import SUPPORTED_FORMATS
+from app.services.thumbnails import ThumbnailCache
 
 
 @dataclass(frozen=True)
@@ -58,6 +59,8 @@ class AssetRecord:
     byte_size: int | None = None
     content: bytes = b""
     content_type: str = "application/octet-stream"
+    manual_thumbnail_content: bytes = b""
+    manual_thumbnail_content_type: str = "application/octet-stream"
     metadata: dict[str, object] = field(default_factory=dict)
 
 
@@ -68,11 +71,20 @@ class TagRecord:
 
 
 @dataclass(frozen=True)
+class ProjectFolderRecord:
+    id: str
+    name: str
+    parent_id: str | None
+
+
+@dataclass(frozen=True)
 class ProjectRecord:
     id: str
     name: str
     description: str
     asset_ids: tuple[str, ...] = ()
+    folders: tuple[ProjectFolderRecord, ...] = ()
+    asset_folder_ids: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -117,7 +129,9 @@ class AssetRepository(Protocol):
 
     def create_project(self, name: str, description: str, *, actor_subject: str) -> ProjectRecord: ...
 
-    def assign_project_asset(self, project_id: str, asset_id: str, *, actor_subject: str) -> ProjectRecord | None: ...
+    def assign_project_asset(self, project_id: str, asset_id: str, *, folder_id: str | None = None, actor_subject: str) -> ProjectRecord | None: ...
+
+    def create_project_folder(self, project_id: str, name: str, parent_id: str | None, *, actor_subject: str) -> ProjectFolderRecord | None: ...
 
     def set_tags(self, asset_id: str, tag_keys: set[str], *, actor_subject: str) -> AssetRecord | None: ...
 
@@ -134,6 +148,10 @@ class AssetRepository(Protocol):
     def permanently_delete(self, asset_id: str, *, actor_subject: str) -> bool: ...
 
     def upload(self, library_key: str, filename: str, stream: BinaryIO, *, actor_subject: str) -> AssetRecord: ...
+
+    def upload_thumbnail(
+        self, asset_id: str, stream: BinaryIO, content_type: str | None, *, actor_subject: str
+    ) -> AssetRecord | None: ...
 
     def list_audit(self) -> list[AuditRecord]: ...
 
@@ -299,6 +317,18 @@ class InMemoryAssetRepository:
         self._record(actor_subject, "upload", asset.id)
         return asset
 
+    def upload_thumbnail(
+        self, asset_id: str, stream: BinaryIO, content_type: str | None, *, actor_subject: str
+    ) -> AssetRecord | None:
+        asset = self._assets.get(asset_id)
+        if asset is None:
+            return None
+        payload, media_type = ThumbnailCache.read_manual_upload(stream, content_type)
+        asset.manual_thumbnail_content = payload
+        asset.manual_thumbnail_content_type = media_type
+        self._record(actor_subject, "upload_thumbnail", asset_id)
+        return asset
+
     def list_audit(self) -> list[AuditRecord]:
         return list(self._audit)
 
@@ -313,7 +343,14 @@ class InMemoryAssetRepository:
         )
 
     def open_thumbnail(self, asset_id: str) -> DownloadHandle | None:
-        return None
+        asset = self._assets.get(asset_id)
+        if asset is None or not asset.manual_thumbnail_content:
+            return None
+        return DownloadHandle(
+            filename="thumbnail",
+            content_type=asset.manual_thumbnail_content_type,
+            stream=BytesIO(asset.manual_thumbnail_content),
+        )
 
     def _record(self, actor_subject: str, action: str, asset_id: str | None) -> None:
         self._audit.append(AuditRecord(actor_subject=actor_subject, action=action, asset_id=asset_id))
@@ -376,6 +413,27 @@ class ProjectCreate(BaseModel):
         return name
 
 
+class ProjectFolderCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=128)
+    parent_id: str | None = Field(default=None, max_length=32)
+
+    @field_validator("name")
+    @classmethod
+    def normalized_name(cls, value: str) -> str:
+        name = value.strip()
+        if not name or "/" in name or "\\" in name or name in {".", ".."}:
+            raise ValueError("folder name is invalid")
+        return name
+
+
+class ProjectAssetAssignment(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    folder_id: str | None = Field(default=None, max_length=32)
+
+
 class FavoriteUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -417,7 +475,7 @@ def _asset_payload(asset: AssetRecord) -> dict[str, object]:
 
 
 def _project_payload(project: ProjectRecord) -> dict[str, object]:
-    return {"id": project.id, "name": project.name, "description": project.description, "asset_ids": list(project.asset_ids)}
+    return {"id": project.id, "name": project.name, "description": project.description, "asset_ids": list(project.asset_ids), "folders": [{"id": folder.id, "name": folder.name, "parent_id": folder.parent_id} for folder in project.folders], "asset_folder_ids": project.asset_folder_ids}
 
 
 def _not_found() -> None:
@@ -472,9 +530,19 @@ def register_api(app: FastAPI, dependencies: ApiDependencies) -> APIRouter:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="invalid project") from error
         return _project_payload(project)
 
+    @router.post("/projects/{project_id}/folders", status_code=status.HTTP_201_CREATED)
+    def create_project_folder(project_id: str, payload: ProjectFolderCreate, actor: ApiActor = Depends(require("project"))) -> dict[str, object]:
+        try:
+            folder = dependencies.repository.create_project_folder(project_id, payload.name, payload.parent_id, actor_subject=actor.subject)
+        except ValueError as error:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="invalid project folder") from error
+        if folder is None:
+            _not_found()
+        return {"id": folder.id, "name": folder.name, "parent_id": folder.parent_id}
+
     @router.put("/projects/{project_id}/assets/{asset_id}")
-    def assign_project_asset(project_id: str, asset_id: str, actor: ApiActor = Depends(require("project"))) -> dict[str, object]:
-        project = dependencies.repository.assign_project_asset(project_id, asset_id, actor_subject=actor.subject)
+    def assign_project_asset(project_id: str, asset_id: str, payload: ProjectAssetAssignment = ProjectAssetAssignment(), actor: ApiActor = Depends(require("project"))) -> dict[str, object]:
+        project = dependencies.repository.assign_project_asset(project_id, asset_id, folder_id=payload.folder_id, actor_subject=actor.subject)
         if project is None:
             _not_found()
         return _project_payload(project)
@@ -550,6 +618,24 @@ def register_api(app: FastAPI, dependencies: ApiDependencies) -> APIRouter:
         if handle is None:
             _not_found()
         return StreamingResponse(handle.stream, media_type=handle.content_type, headers={"Cache-Control": "private, no-cache"})
+
+    @router.post("/assets/{asset_id}/thumbnail")
+    def upload_thumbnail(
+        asset_id: str,
+        image: UploadFile = File(...),
+        actor: ApiActor = Depends(require("upload")),
+    ) -> dict[str, object]:
+        try:
+            asset = dependencies.repository.upload_thumbnail(
+                asset_id, image.file, image.content_type, actor_subject=actor.subject
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="invalid thumbnail image") from error
+        finally:
+            image.file.close()
+        if asset is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="asset not found")
+        return _asset_payload(asset)
 
     @router.get("/tags")
     def tags(_: ApiActor = Depends(require("browse"))) -> dict[str, list[dict[str, str]]]:

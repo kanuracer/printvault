@@ -81,7 +81,13 @@
     "instructions": "Instructions",
     "binaryDocument": "This document is included but cannot be shown as text."
   },
+  "thumbnail": {
+    "upload": "Custom thumbnail"
+  },
+
   "projects": {
+    "title": "Projects",
+    "add": "Add project",
     "create": "Create project",
     "name": "Project name",
     "description": "Description",

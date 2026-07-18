@@ -16,8 +16,8 @@ from typing import Any
 from sqlalchemy import Select, select
 from sqlalchemy.orm import Session, joinedload, selectinload, sessionmaker
 
-from app.api import AssetQuery, AssetRecord, AuditRecord, DownloadHandle, LibraryRecord, ProjectRecord, TagRecord
-from app.models import Asset, AuditEvent, Library, Project, Tag
+from app.api import AssetQuery, AssetRecord, AuditRecord, DownloadHandle, LibraryRecord, ProjectFolderRecord, ProjectRecord, TagRecord
+from app.models import Asset, AuditEvent, Library, Project, ProjectAsset, ProjectFolder, Tag
 from app.services.archive import ArchiveMetadata, ArchiveService
 from app.services.filesystem import FileActionResult, PathCollisionError, SafeFilesystem, UnsafePathError
 from app.services.indexer import IndexedAsset
@@ -113,7 +113,7 @@ class SQLAlchemyAssetRepository:
 
     def list_projects(self) -> list[ProjectRecord]:
         with self._session_factory() as session:
-            projects = session.scalars(select(Project).options(selectinload(Project.assets)).order_by(Project.name)).all()
+            projects = session.scalars(select(Project).options(selectinload(Project.assets), selectinload(Project.folders), selectinload(Project.asset_links)).order_by(Project.name)).all()
             return [self._project_record(project) for project in projects]
 
     def create_project(self, name: str, description: str, *, actor_subject: str) -> ProjectRecord:
@@ -124,15 +124,38 @@ class SQLAlchemyAssetRepository:
             self._audit(session, actor_subject, "create_project", None, {"project_id": str(project.id), "name": project.name})
             return self._project_record(project)
 
-    def assign_project_asset(self, project_id: str, asset_id: str, *, actor_subject: str) -> ProjectRecord | None:
+    def create_project_folder(self, project_id: str, name: str, parent_id: str | None, *, actor_subject: str) -> ProjectFolderRecord | None:
+        with self._session_factory.begin() as session:
+            project = self._get_project(session, project_id)
+            if project is None:
+                return None
+            parent = None if parent_id is None else session.get(ProjectFolder, int(parent_id))
+            if parent_id is not None and parent is None:
+                return None
+            if parent is not None and parent.project_id != project.id:
+                raise ValueError("parent folder belongs to another project")
+            folder = ProjectFolder(project_id=project.id, parent_id=None if parent is None else parent.id, name=name)
+            session.add(folder)
+            session.flush()
+            self._audit(session, actor_subject, "create_project_folder", None, {"project_id": str(project.id), "folder_id": str(folder.id)})
+            return ProjectFolderRecord(id=str(folder.id), name=folder.name, parent_id=str(folder.parent_id) if folder.parent_id is not None else None)
+
+    def assign_project_asset(self, project_id: str, asset_id: str, *, folder_id: str | None = None, actor_subject: str) -> ProjectRecord | None:
         with self._session_factory.begin() as session:
             project = self._get_project(session, project_id)
             asset = self._get_asset(session, asset_id)
             if project is None or asset is None:
                 return None
-            if asset not in project.assets:
-                project.assets.append(asset)
-                self._audit(session, actor_subject, "assign_project_asset", asset, {"project_id": str(project.id)})
+            folder = None if folder_id is None else session.get(ProjectFolder, int(folder_id))
+            if folder_id is not None and (folder is None or folder.project_id != project.id):
+                return None
+            link = next((link for link in project.asset_links if link.asset_id == asset.id), None)
+            if link is None:
+                link = ProjectAsset(project=project, asset=asset)
+                session.add(link)
+                session.flush()
+            link.folder_id = None if folder is None else folder.id
+            self._audit(session, actor_subject, "assign_project_asset", asset, {"project_id": str(project.id), "folder_id": str(link.folder_id) if link.folder_id is not None else None})
             session.flush()
             return self._project_record(project)
 
@@ -255,6 +278,39 @@ class SQLAlchemyAssetRepository:
                 destination.unlink(missing_ok=True)
             raise
 
+    def upload_thumbnail(
+        self, asset_id: str, stream: BinaryIO, content_type: str | None, *, actor_subject: str
+    ) -> AssetRecord | None:
+        previous_digest: str | None = None
+        replacement_digest: str | None = None
+        with self._session_factory.begin() as session:
+            asset = self._get_asset(session, asset_id)
+            if asset is None:
+                return None
+            previous_digest = asset.manual_thumbnail_sha
+            thumbnail = self._thumbnails.store_manual(stream, content_type)
+            if thumbnail.sha256 is None:
+                raise RuntimeError("manual thumbnail storage did not return a digest")
+            replacement_digest = thumbnail.sha256
+            asset.manual_thumbnail_sha = replacement_digest
+            self._audit(
+                session,
+                actor_subject,
+                "upload_thumbnail",
+                asset,
+                {"byte_size": thumbnail.path.stat().st_size},
+            )
+            session.flush()
+            record = self._asset_record(asset)
+        if previous_digest and previous_digest != replacement_digest:
+            with self._session_factory() as session:
+                still_referenced = session.scalar(
+                    select(Asset.id).where(Asset.manual_thumbnail_sha == previous_digest).limit(1)
+                ) is not None
+            if not still_referenced:
+                self._thumbnails.remove_manual(previous_digest)
+        return record
+
     @staticmethod
     def _write_upload(stream: BinaryIO, destination: Path, *, max_bytes: int = 512 * 1024 * 1024) -> None:
         stream.seek(0)
@@ -306,7 +362,17 @@ class SQLAlchemyAssetRepository:
     def open_thumbnail(self, asset_id: str) -> DownloadHandle | None:
         with self._session_factory() as session:
             asset = self._get_asset(session, asset_id)
-            if asset is None or not asset.sha256:
+            if asset is None:
+                return None
+            if asset.manual_thumbnail_sha:
+                manual = self._thumbnails.manual_candidate(asset.manual_thumbnail_sha)
+                if manual is not None:
+                    candidate, content_type = manual
+                    try:
+                        return DownloadHandle(filename=candidate.name, content_type=content_type, stream=candidate.open("rb"))
+                    except OSError:
+                        return None
+            if not asset.sha256:
                 return None
             for suffix, content_type in ((".png", "image/png"), (".jpg", "image/jpeg"), (".jpeg", "image/jpeg"), (".webp", "image/webp"), (".svg", "image/svg+xml")):
                 candidate = self._thumbnails.root / asset.sha256[:2] / f"{asset.sha256}{suffix}"
@@ -391,6 +457,8 @@ class SQLAlchemyAssetRepository:
             name=project.name,
             description=project.description,
             asset_ids=tuple(str(asset.id) for asset in sorted(project.assets, key=lambda asset: asset.id)),
+            folders=tuple(ProjectFolderRecord(id=str(folder.id), name=folder.name, parent_id=str(folder.parent_id) if folder.parent_id is not None else None) for folder in sorted(project.folders, key=lambda folder: folder.id)),
+            asset_folder_ids={str(link.asset_id): str(link.folder_id) for link in project.asset_links if link.folder_id is not None},
         )
 
     @staticmethod
@@ -399,7 +467,7 @@ class SQLAlchemyAssetRepository:
             primary_key = int(project_id)
         except (TypeError, ValueError):
             return None
-        return session.scalar(select(Project).options(selectinload(Project.assets)).where(Project.id == primary_key))
+        return session.scalar(select(Project).options(selectinload(Project.assets), selectinload(Project.folders), selectinload(Project.asset_links)).where(Project.id == primary_key))
 
     @staticmethod
     def _get_asset(session: Session, asset_id: str) -> Asset | None:

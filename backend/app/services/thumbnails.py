@@ -7,6 +7,7 @@ fingerprint fields.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import stat
@@ -14,17 +15,26 @@ import tempfile
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
+from typing import BinaryIO
 
 from app.services.metadata import FileFingerprint
 
 _IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
 _DIGEST = re.compile(r"[0-9a-f]{64}")
+_PLATE_ONE = re.compile(r"plate(?:[_-]?0*1)", re.IGNORECASE)
+_MANUAL_IMAGE_TYPES = {
+    "image/png": ".png",
+    "image/jpeg": ".jpg",
+    "image/webp": ".webp",
+}
+_MAX_MANUAL_BYTES = 8 * 1024 * 1024
 
 
 @dataclass(frozen=True)
 class ThumbnailResult:
     path: Path
-    kind: str  # ``embedded`` or ``placeholder``
+    kind: str  # ``embedded``, ``manual``, or ``placeholder``
+    sha256: str | None = None
 
 
 class ThumbnailCache:
@@ -52,6 +62,57 @@ class ThumbnailCache:
         self._write_once(target, self._placeholder_svg(fingerprint))
         return ThumbnailResult(path=target, kind="placeholder")
 
+    def store_manual(self, stream: BinaryIO, content_type: str | None) -> ThumbnailResult:
+        """Validate and content-address one user-supplied thumbnail below the cache root."""
+        payload, media_type = self.read_manual_upload(stream, content_type)
+        digest = hashlib.sha256(payload).hexdigest()
+        target = self._manual_target(digest, _MANUAL_IMAGE_TYPES[media_type])
+        self._write_once(target, payload)
+        return ThumbnailResult(path=target, kind="manual", sha256=digest)
+
+    @staticmethod
+    def read_manual_upload(stream: BinaryIO, content_type: str | None) -> tuple[bytes, str]:
+        """Bound and verify upload bytes without trusting a client filename or MIME claim."""
+        payload = bytearray()
+        while len(payload) <= _MAX_MANUAL_BYTES:
+            chunk = stream.read(min(64 * 1024, _MAX_MANUAL_BYTES + 1 - len(payload)))
+            if not chunk:
+                break
+            payload.extend(chunk)
+        if len(payload) > _MAX_MANUAL_BYTES:
+            raise ValueError("manual thumbnail exceeds configured limit")
+
+        media_type = ThumbnailCache._manual_image_type(bytes(payload))
+        claimed_type = content_type.split(";", 1)[0].strip().casefold() if isinstance(content_type, str) else ""
+        if media_type is None or claimed_type not in _MANUAL_IMAGE_TYPES or claimed_type != media_type:
+            raise ValueError("manual thumbnail must be a PNG, JPEG, or WebP image")
+        return bytes(payload), media_type
+
+    def manual_candidate(self, digest: str) -> tuple[Path, str] | None:
+        """Find an existing safe manual thumbnail using only its persisted digest."""
+        if not _DIGEST.fullmatch(digest):
+            return None
+        for content_type, suffix in _MANUAL_IMAGE_TYPES.items():
+            candidate = self._manual_target(digest, suffix)
+            try:
+                if candidate.is_file() and not candidate.is_symlink():
+                    return candidate, content_type
+            except OSError:
+                continue
+        return None
+
+    def remove_manual(self, digest: str) -> None:
+        """Remove an unreferenced manual thumbnail using only a validated digest."""
+        if not _DIGEST.fullmatch(digest):
+            return
+        for suffix in set(_MANUAL_IMAGE_TYPES.values()):
+            candidate = self._manual_target(digest, suffix)
+            try:
+                if candidate.is_file() and not candidate.is_symlink():
+                    candidate.unlink()
+            except OSError:
+                continue
+
     def _embedded_thumbnail(self, model_path: Path, fingerprint: FileFingerprint) -> tuple[str, bytes] | None:
         if fingerprint.format != "3mf":
             return None
@@ -62,10 +123,16 @@ class ThumbnailCache:
                 members = archive.infolist()
                 if len(members) > self.max_members or any(not self._safe_member(member) for member in members):
                     return None
-                for member in members:
+                named_members = [
+                    member for member in members
+                    if self._is_thumbnail_member(member.filename, Path(member.filename).suffix.lower())
+                ]
+                plate_one_members = [
+                    member for member in members
+                    if self._is_plate_one_member(member.filename, Path(member.filename).suffix.lower())
+                ]
+                for member in [*named_members, *plate_one_members]:
                     suffix = Path(member.filename).suffix.lower()
-                    if not self._is_thumbnail_member(member.filename, suffix):
-                        continue
                     if member.file_size > self.max_member_bytes or member.compress_size > self.max_archive_bytes:
                         return None
                     with archive.open(member, "r") as source:
@@ -95,8 +162,27 @@ class ThumbnailCache:
         normalized = name.casefold()
         return "thumbnail" in PurePosixPath(normalized).name
 
+    @staticmethod
+    def _is_plate_one_member(name: str, suffix: str) -> bool:
+        if suffix not in _IMAGE_EXTENSIONS:
+            return False
+        return bool(_PLATE_ONE.fullmatch(PurePosixPath(name).stem))
+
     def _target(self, digest: str, suffix: str) -> Path:
         return self.root / digest[:2] / f"{digest}{suffix}"
+
+    def _manual_target(self, digest: str, suffix: str) -> Path:
+        return self.root / "manual" / digest[:2] / f"{digest}{suffix}"
+
+    @staticmethod
+    def _manual_image_type(payload: bytes) -> str | None:
+        if payload.startswith(b"\x89PNG\r\n\x1a\n"):
+            return "image/png"
+        if payload.startswith(b"\xff\xd8\xff"):
+            return "image/jpeg"
+        if payload.startswith(b"RIFF") and len(payload) >= 12 and payload[8:12] == b"WEBP":
+            return "image/webp"
+        return None
 
     @staticmethod
     def _validate_fingerprint(fingerprint: FileFingerprint) -> None:

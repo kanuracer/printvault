@@ -55,6 +55,7 @@ class Asset(Base):
     library_id: Mapped[int] = mapped_column(ForeignKey("libraries.id", ondelete="RESTRICT"), nullable=False)
     relative_path: Mapped[str] = mapped_column(String(1024), nullable=False)
     sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    manual_thumbnail_sha: Mapped[str | None] = mapped_column(String(64), nullable=True)
     format: Mapped[str] = mapped_column(String(64), nullable=False)
     byte_size: Mapped[int] = mapped_column(Integer, nullable=False)
     favorite: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
@@ -135,6 +136,31 @@ class Project(Base):
     assets: Mapped[list[Asset]] = relationship(
         secondary="project_assets", back_populates="projects", overlaps="asset,project_links,project,asset_links"
     )
+    folders: Mapped[list["ProjectFolder"]] = relationship(back_populates="project", cascade="all, delete-orphan")
+
+
+class ProjectFolder(Base):
+    __tablename__ = "project_folders"
+    __table_args__ = (UniqueConstraint("project_id", "parent_id", "name_key", name="uq_project_folder_sibling_name"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True)
+    parent_id: Mapped[int | None] = mapped_column(ForeignKey("project_folders.id", ondelete="RESTRICT"), nullable=True, index=True)
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    name_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    project: Mapped[Project] = relationship(back_populates="folders")
+    parent: Mapped["ProjectFolder | None"] = relationship(remote_side="ProjectFolder.id", back_populates="children")
+    children: Mapped[list["ProjectFolder"]] = relationship(back_populates="parent")
+
+    @validates("name")
+    def normalize_name(self, _: str, value: str) -> str:
+        name = value.strip() if isinstance(value, str) else ""
+        if not name or "/" in name or "\\" in name or name in {".", ".."}:
+            raise ValueError("project folder name is invalid")
+        self.name_key = name.casefold()
+        return name
 
 
 class ProjectAsset(Base):
@@ -142,6 +168,7 @@ class ProjectAsset(Base):
 
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), primary_key=True)
     asset_id: Mapped[int] = mapped_column(ForeignKey("assets.id", ondelete="CASCADE"), primary_key=True)
+    folder_id: Mapped[int | None] = mapped_column(ForeignKey("project_folders.id", ondelete="RESTRICT"), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
     project: Mapped[Project] = relationship(back_populates="asset_links", overlaps="assets,projects")

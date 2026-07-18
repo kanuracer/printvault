@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -121,6 +122,68 @@ def test_indexed_asset_exposes_a_private_persisted_sha_thumbnail(tmp_path: Path)
     assert list(settings.thumbnails_root.glob("*/*.svg"))
 
 
+def test_editor_uploads_a_valid_manual_thumbnail_without_exposing_cache_data(tmp_path: Path) -> None:
+    settings = production_settings(tmp_path)
+    image = b"\x89PNG\r\n\x1a\nmanual-thumbnail"
+    digest = hashlib.sha256(image).hexdigest()
+    with TestClient(create_app(settings), base_url="https://printvault.example.test") as client:
+        asset = add_asset(settings, library_key="models", relative_path="parts/bracket.stl")
+        generated = settings.thumbnails_root / "aa" / f"{'a' * 64}.svg"
+        generated.parent.mkdir()
+        generated.write_bytes(b"generated-thumbnail")
+        client.cookies.set("printvault_session", signed_session(settings, subject="editor-1", role="editor"))
+        uploaded = client.post(
+            f"/api/assets/{asset.id}/thumbnail",
+            files={"image": ("untrusted-name.png", image, "image/png")},
+        )
+        served = client.get(f"/api/assets/{asset.id}/thumbnail")
+        with session_factory(settings)() as session:
+            persisted = session.get(Asset, asset.id)
+            events = session.scalars(select(AuditEvent).order_by(AuditEvent.id)).all()
+
+    assert uploaded.status_code == 200
+    assert uploaded.json() == {
+        "id": str(asset.id),
+        "library_key": "models",
+        "relative_path": "parts/bracket.stl",
+        "filename": "bracket.stl",
+        "format": "stl",
+        "favorite": False,
+        "tags": [],
+        "archived": False,
+        "byte_size": len(b"solid printvault"),
+    }
+    assert digest not in uploaded.text
+    assert "/manual/" not in uploaded.text
+    assert persisted is not None
+    assert persisted.manual_thumbnail_sha == digest
+    assert (settings.thumbnails_root / "manual" / digest[:2] / f"{digest}.png").read_bytes() == image
+    assert served.status_code == 200
+    assert served.content == image
+    assert served.headers["content-type"].startswith("image/png")
+    assert [event.action for event in events] == ["upload_thumbnail"]
+
+
+def test_manual_thumbnail_upload_rejects_invalid_image_before_writing_or_persisting(tmp_path: Path) -> None:
+    settings = production_settings(tmp_path)
+    with TestClient(create_app(settings), base_url="https://printvault.example.test") as client:
+        asset = add_asset(settings, library_key="models", relative_path="parts/bracket.stl")
+        client.cookies.set("printvault_session", signed_session(settings, subject="editor-1", role="editor"))
+        response = client.post(
+            f"/api/assets/{asset.id}/thumbnail",
+            files={"image": ("unsafe.png", b"not-really-a-png", "image/png")},
+        )
+        with session_factory(settings)() as session:
+            persisted = session.get(Asset, asset.id)
+            events = session.scalars(select(AuditEvent).order_by(AuditEvent.id)).all()
+
+    assert response.status_code == 422
+    assert persisted is not None
+    assert persisted.manual_thumbnail_sha is None
+    assert list((settings.thumbnails_root / "manual").glob("**/*")) == []
+    assert events == []
+
+
 def test_production_api_resolves_signed_bff_session_and_streams_only_persisted_safe_asset(tmp_path: Path) -> None:
     settings = production_settings(tmp_path)
     with TestClient(create_app(settings), base_url="https://printvault.example.test") as client:
@@ -198,7 +261,34 @@ def test_editor_creates_a_logical_project_and_assigns_an_existing_model(tmp_path
         "name": "Werkbank",
         "description": "Ersatzteile",
         "asset_ids": [str(asset.id)],
+        "folders": [],
+        "asset_folder_ids": {},
     }]
+
+
+def test_editor_creates_nested_logical_project_folders_and_assigns_a_model(tmp_path: Path) -> None:
+    settings = production_settings(tmp_path)
+    with TestClient(create_app(settings), base_url="https://printvault.example.test") as client:
+        asset = add_asset(settings, library_key="models", relative_path="parts/bracket.stl")
+        client.cookies.set("printvault_session", signed_session(settings, subject="editor-1", role="editor"))
+        project = client.post("/api/projects", json={"name": "Werkbank", "description": "Ersatzteile"}).json()
+        root = client.post(f"/api/projects/{project['id']}/folders", json={"name": "Elektrik"})
+        child = client.post(
+            f"/api/projects/{project['id']}/folders", json={"name": "24V", "parent_id": root.json()["id"]}
+        )
+        assigned = client.put(
+            f"/api/projects/{project['id']}/assets/{asset.id}", json={"folder_id": child.json()["id"]}
+        )
+
+    assert root.status_code == 201
+    assert child.status_code == 201
+    assert assigned.status_code == 200
+    payload = assigned.json()
+    assert payload["folders"] == [
+        {"id": root.json()["id"], "name": "Elektrik", "parent_id": None},
+        {"id": child.json()["id"], "name": "24V", "parent_id": root.json()["id"]},
+    ]
+    assert payload["asset_folder_ids"] == {str(asset.id): child.json()["id"]}
 
 
 def test_upload_rejects_viewers_before_writing_files(tmp_path: Path) -> None:

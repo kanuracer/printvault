@@ -81,7 +81,13 @@
     "instructions": "Anleitungen",
     "binaryDocument": "Dieses Dokument ist enthalten, kann aber nicht als Text angezeigt werden."
   },
+  "thumbnail": {
+    "upload": "Eigenes Vorschaubild"
+  },
+
   "projects": {
+    "title": "Projekte",
+    "add": "Projekt hinzufügen",
     "create": "Projekt erstellen",
     "name": "Projektname",
     "description": "Beschreibung",
