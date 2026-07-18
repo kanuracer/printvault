@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "origin": "https://printvault.kanuracer.de",
+  "profiles": [
+    {
+      "id": "orca",
+      "label": "OrcaSlicer",
+      "executable": "/absolute/path/to/OrcaSlicer",
+      "args": ["{file}"]
+    },
+    {
+      "id": "prusa",
+      "label": "PrusaSlicer",
+      "executable": "/absolute/path/to/PrusaSlicer",
+      "args": ["{file}"]
+    },
+    {
+      "id": "cura",
+      "label": "UltiMaker Cura",
+      "executable": "/absolute/path/to/cura",
+      "args": ["{file}"]
+    }
+  ]
+}
