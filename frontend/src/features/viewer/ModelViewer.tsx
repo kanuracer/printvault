@@ -47,7 +47,7 @@ function disposeMaterial(material: Material): void {
   material.dispose()
 }
 
-function disposeObjectResources(root: Object3D): void {
+export function disposeObjectResources(root: Object3D): void {
   root.traverse((item) => {
     const object = item as DisposableObject
     object.geometry?.dispose()
@@ -56,7 +56,7 @@ function disposeObjectResources(root: Object3D): void {
   })
 }
 
-function applyPreviewMaterial(root: Object3D, wireframe: boolean): MeshStandardMaterial[] {
+export function applyPreviewMaterial(root: Object3D, wireframe: boolean): MeshStandardMaterial[] {
   const materials: MeshStandardMaterial[] = []
   root.traverse((item) => {
     if (!(item instanceof Mesh)) return
@@ -71,7 +71,7 @@ function applyPreviewMaterial(root: Object3D, wireframe: boolean): MeshStandardM
   return materials
 }
 
-function loadModel(source: ValidViewerSource, onLoad: (root: Object3D) => void, onFailure: () => void): void {
+export function loadModel(source: ValidViewerSource, onLoad: (root: Object3D) => void, onFailure: () => void): void {
   const onError = () => onFailure()
 
   switch (selectModelLoader(source.format)) {

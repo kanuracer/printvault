@@ -62,11 +62,9 @@ h1 { font-size: clamp(25px, 3vw, 32px); font-weight: 590; letter-spacing: -.7px;
 .asset-card-button { background: transparent; border: 0; color: inherit; cursor: pointer; display: block; padding: 0; text-align: left; width: 100%; }
 .asset-card:hover { background: var(--surface-hover); border-color: var(--border-strong); transform: translateY(-2px); }
 .asset-card:focus-within { border-color: var(--focus); }
-.asset-preview { align-items: center; background: radial-gradient(circle at 50% 35%, color-mix(in srgb, var(--accent) 24%, transparent), transparent 48%), var(--preview); display: flex; height: 156px; justify-content: center; overflow: hidden; }
-.model-shape { background: linear-gradient(135deg, #a59dff, #5e6ad2); border-radius: 28% 42% 24% 36%; box-shadow: 16px 18px 26px rgba(0, 0, 0, .26), inset 4px 5px 9px rgba(255,255,255,.25); height: 72px; transform: rotate(-24deg) skewY(8deg); width: 88px; }
-.asset-card:nth-child(2) .model-shape { border-radius: 15px 50% 30px 50%; height: 64px; transform: rotate(27deg); width: 78px; }
-.asset-card:nth-child(3) .model-shape { border-radius: 50% 13px 50% 21px; height: 72px; transform: rotate(12deg); width: 58px; }
-.asset-card:nth-child(4) .model-shape { border-radius: 16px; height: 54px; transform: rotate(-12deg); width: 92px; }
+.asset-preview { background: radial-gradient(circle at 50% 35%, color-mix(in srgb, var(--accent) 24%, transparent), transparent 48%), var(--preview); height: 156px; overflow: hidden; }
+.asset-thumbnail { height: 100%; width: 100%; }
+.asset-thumbnail img { display: block; height: 100%; object-fit: contain; width: 100%; }
 .asset-body { padding: 13px; }
 .asset-name { font-size: 14px; font-weight: 590; line-height: 1.35; margin: 0; }
 .asset-meta { margin: 5px 0 0; }

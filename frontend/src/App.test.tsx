@@ -8,6 +8,10 @@ vi.mock('./features/viewer/ModelViewer', () => ({
   ModelViewer: ({ source }: { source: unknown }) => <output data-testid="model-viewer">{JSON.stringify(source)}</output>,
 }))
 
+vi.mock('./features/viewer/AssetThumbnail', () => ({
+  AssetThumbnail: ({ source }: { source: unknown }) => <output data-testid="asset-thumbnail">{JSON.stringify(source)}</output>,
+}))
+
 const jsonResponse = (body: unknown, status = 200) => new Response(JSON.stringify(body), {
   status,
   headers: { 'Content-Type': 'application/json' },
@@ -121,6 +125,11 @@ describe('PrintVault authenticated asset library', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/libraries', expect.objectContaining({ credentials: 'same-origin' }))
     expect(fetchMock).toHaveBeenCalledWith('/api/assets', expect.objectContaining({ credentials: 'same-origin' }))
     expect(screen.getByText('functional')).toBeVisible()
+    expect(screen.getByTestId('asset-thumbnail')).toHaveTextContent(JSON.stringify({
+      kind: 'authenticated-api',
+      url: '/api/assets/asset%20id%2F1/download',
+      format: 'stl',
+    }))
     await user.click(screen.getByRole('button', { name: /Widget\.stl/i }))
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
