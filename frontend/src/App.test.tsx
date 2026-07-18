@@ -143,6 +143,13 @@ describe('PrintVault authenticated asset library', () => {
     const user = userEvent.setup()
 
     render(<App />)
+    const libraryWorkbench = await waitFor(() => {
+      const element = document.querySelector('.library-workbench')
+      expect(element).toBeInTheDocument()
+      return element as HTMLElement
+    })
+    expect(libraryWorkbench).toContainElement(screen.getByRole('region', { name: 'Projektfilter' }))
+    expect(libraryWorkbench.querySelector('.upload-dropzone')).toBeInTheDocument()
     const files = [new File(['solid bracket'], 'bracket.stl', { type: 'model/stl' }), new File(['o case'], 'case.obj', { type: 'model/obj' })]
     await user.upload(await screen.findByLabelText('Modelle hochladen'), files)
 
