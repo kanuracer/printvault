@@ -143,7 +143,7 @@ h1 { font-size: clamp(25px, 3vw, 32px); font-weight: 590; letter-spacing: -.7px;
 .project-card p { color: var(--text-secondary); font-size: 13px; margin: 0; }
 .project-card span { color: var(--text-muted); font-size: 12px; }
 .library-filters { border: 1px solid var(--border); border-radius: 10px; display: grid; gap: 12px; margin: 0 0 18px; padding: 13px; }
-.library-workbench { align-items: stretch; display: grid; gap: 14px; grid-template-columns: minmax(360px, 1.2fr) minmax(280px, .8fr); margin: 0 0 18px; }
+.library-workbench { align-items: stretch; display: grid; gap: 14px; grid-template-columns: minmax(280px, 420px) minmax(0, 1fr); margin: 0 0 18px; }
 .library-workbench .library-filters, .library-workbench .upload-dropzone { margin: 0; }
 .library-workbench .upload-dropzone { align-content: center; min-height: 100%; }
 .library-filters > div { display: grid; gap: 7px; }
