@@ -75,7 +75,7 @@ h1 { font-size: clamp(25px, 3vw, 32px); font-weight: 590; letter-spacing: -.7px;
 .asset-body { padding: 13px; }
 .asset-name { font-size: 14px; font-weight: 590; line-height: 1.35; margin: 0; }
 .asset-meta { margin: 5px 0 0; }
-.inspector { border-left: 1px solid var(--border); padding: 24px 20px; }
+.inspector { border-left: 1px solid var(--border); height: 100dvh; overflow-y: auto; overscroll-behavior: contain; padding: 24px 20px; position: sticky; top: 0; }
 .inspector-header { align-items: center; display: flex; justify-content: space-between; }
 .inspector-title { font-size: 19px; font-weight: 590; letter-spacing: -.3px; margin: 20px 0 6px; }
 .inspector-preview { align-items: center; background: radial-gradient(circle at 50% 35%, color-mix(in srgb, var(--accent) 28%, transparent), transparent 48%), var(--preview); border: 1px solid var(--border); border-radius: 12px; display: flex; height: 174px; justify-content: center; margin: 18px 0; }
