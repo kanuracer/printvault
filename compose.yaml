@@ -1,7 +1,7 @@
 services:
   printvault:
     build:
-      context: .
+      context: /mnt/user/appdata/printvault/source
       dockerfile: Dockerfile
     image: printvault:local
     container_name: printvault
@@ -30,7 +30,6 @@ services:
       PRINTVAULT_THUMBNAILS_ROOT: "/var/lib/printvault/thumbnails"
     volumes:
       - /mnt/user/appdata/printvault/modelle:/libraries/modelle:rw
-
       - /mnt/user/appdata/printvault/archiv:/libraries/archiv:rw
       - /mnt/user/appdata/printvault/data:/var/lib/printvault:rw
       - /mnt/user/appdata/printvault/thumbnails:/var/lib/printvault/thumbnails:rw
