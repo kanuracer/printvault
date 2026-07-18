@@ -53,6 +53,10 @@ function CubeIcon() {
   return <svg aria-hidden="true" fill="none" height="17" viewBox="0 0 24 24" width="17"><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z" stroke="currentColor" strokeLinejoin="round" strokeWidth="1.5" /><path d="M4.5 7.8 12 12l7.5-4.2M12 12v9" stroke="currentColor" strokeLinejoin="round" strokeWidth="1.5" /></svg>
 }
 
+function FolderIcon() {
+  return <svg aria-hidden="true" fill="none" height="28" viewBox="0 0 32 28" width="32"><path d="M3 6.5c0-1.7 1.3-3 3-3h7l2.7 3H26c1.7 0 3 1.3 3 3V23c0 1.7-1.3 3-3 3H6c-1.7 0-3-1.3-3-3V6.5Z" fill="currentColor" opacity=".9" /><path d="M3.8 10.5h24.4" stroke="var(--canvas)" strokeWidth="1.4" /></svg>
+}
+
 function assetViewerSource(asset: Asset): ViewerSource {
   return {
     kind: 'authenticated-api',
@@ -499,7 +503,7 @@ export default function App() {
           {showProjects && <div className="project-grid">{projects.map((project) => <button className="project-card" key={project.id} onClick={() => void chooseProject(project.id)} type="button"><h2>{project.name}</h2>{project.description && <p>{project.description}</p>}<span>{t('content.resultCount', { count: project.assetIds.length })}</span></button>)}</div>}
           {!showProjects && assetState === 'loading' && <p role="status">{t('content.loading')}</p>}
           {!showProjects && assetState === 'error' && <div className="content-state" role="alert"><p>{t('content.error')}</p><button className="ghost-button" onClick={loadWorkspace} type="button">{t('content.retry')}</button></div>}
-          {activeProjectRecord && childFolders.length > 0 && <div className="folder-grid">{childFolders.map((folder) => <button aria-label={folder.name} className="folder-card" key={folder.id} onClick={() => chooseFolder(folder.id)} type="button"><span aria-hidden="true" className="folder-card-icon">▰</span><span>{folder.name}</span></button>)}</div>}
+          {activeProjectRecord && childFolders.length > 0 && <div className="folder-grid">{childFolders.map((folder) => <button aria-label={folder.name} className="folder-card" key={folder.id} onClick={() => chooseFolder(folder.id)} type="button"><span aria-hidden="true" className="folder-card-icon"><FolderIcon /></span><span className="folder-card-name">{folder.name}</span></button>)}</div>}
           {assetState === 'ready' && visibleAssets.length === 0 && childFolders.length === 0 && <div className="content-state"><h2>{t('content.emptyTitle')}</h2><p>{t('content.emptyDescription')}</p></div>}
           {assetState === 'ready' && visibleAssets.length > 0 && <div aria-busy="false" className="asset-grid">{visibleAssets.map((asset) => <article className="asset-card" key={asset.id}><button aria-label={asset.filename} className="asset-card-button" onClick={() => void selectAsset(asset.id)} type="button"><div className="asset-preview"><AssetThumbnail assetId={asset.id} revision={thumbnailRevision} /></div><div className="asset-body"><h2 className="asset-name">{asset.filename}</h2><p className="asset-meta">{asset.byteSize === undefined ? t('content.assetMeta', { format: asset.format.toUpperCase(), path: asset.relativePath }) : t('content.assetMetaWithSize', { format: asset.format.toUpperCase(), path: asset.relativePath, size: t('content.fileSize', { size: byteSizeInMegabytes(asset.byteSize) }) })}</p><div className="project-badges">{projects.filter((project) => project.assetIds.includes(asset.id)).map((project) => <span className="project-badge" key={project.id}>{project.name}{project.assetFolderIds[asset.id] ? ` · ${project.folders.find((folder) => folder.id === project.assetFolderIds[asset.id])?.name ?? ''}` : ''}</span>)}</div><div className="tags">{asset.tags.map((tag) => <span className="tag" key={tag}>{tag}</span>)}</div></div></button></article>)}</div>}
         </section>

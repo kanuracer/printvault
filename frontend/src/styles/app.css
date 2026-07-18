@@ -128,10 +128,11 @@ h1 { font-size: clamp(25px, 3vw, 32px); font-weight: 590; letter-spacing: -.7px;
 .folder-breadcrumb-segment { align-items: center; display: inline-flex; gap: 6px; }
 .folder-breadcrumbs button { background: transparent; border: 0; color: var(--accent-text); padding: 0; }
 .folder-breadcrumbs button:hover { color: var(--text-primary); text-decoration: underline; }
-.folder-grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(176px, 1fr)); margin: 0 0 18px; }
-.folder-card { align-items: center; background: var(--card); border: 1px solid var(--border); border-radius: 11px; color: var(--text-primary); display: flex; font: inherit; gap: 11px; min-height: 86px; padding: 16px; text-align: left; }
+.folder-grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 230px), 1fr)); margin: 0 0 18px; }
+.folder-card { align-items: center; background: var(--card); border: 1px solid var(--border); border-radius: 11px; color: var(--text-primary); display: flex; font: inherit; gap: 12px; min-height: 92px; min-width: 0; padding: 16px; text-align: left; }
 .folder-card:hover { background: var(--surface-hover); border-color: var(--accent); }
-.folder-card-icon { color: var(--accent); font-size: 28px; line-height: 1; transform: skewX(-8deg); }
+.folder-card-icon { color: var(--accent); display: grid; flex: 0 0 32px; place-items: center; }
+.folder-card-name { min-width: 0; overflow-wrap: anywhere; }
 .nav-section-button { background: transparent; border: 0; cursor: pointer; padding: 0; text-align: left; }
 .nav-section-button:hover { color: var(--text-primary); }
 .project-folders { border: 1px solid var(--border); border-radius: 10px; display: grid; gap: 12px; margin: 0 0 16px; padding: 16px; }
