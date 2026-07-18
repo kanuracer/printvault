@@ -245,6 +245,32 @@ describe('PrintVault authenticated asset library', () => {
     expect(screen.queryByRole('button', { name: /Root\.stl/i })).not.toBeInTheDocument()
   })
 
+  it('restores the project root when browser history goes back from a folder', async () => {
+    const rootAsset = { id: 'root-asset', library_key: 'models', relative_path: 'Root.stl', filename: 'Root.stl', format: 'stl', tags: [], favorite: false, archived: false }
+    const folderAsset = { id: 'folder-asset', library_key: 'models', relative_path: 'Folder.stl', filename: 'Folder.stl', format: 'stl', tags: [], favorite: false, archived: false }
+    vi.mocked(fetch).mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url === '/api/auth/me') return Promise.resolve(jsonResponse({ subject: 'user-1', role: 'viewer' }))
+      if (url === '/api/libraries') return Promise.resolve(jsonResponse({ items: [{ key: 'models', name: 'Modelle' }] }))
+      if (url === '/api/assets') return Promise.resolve(jsonResponse({ items: [rootAsset, folderAsset] }))
+      if (url === '/api/projects') return Promise.resolve(jsonResponse({ items: [{ id: 'project-1', name: 'Drucker', description: '', asset_ids: ['root-asset', 'folder-asset'], folders: [{ id: 'folder-1', name: 'Counter', parent_id: null }], asset_folder_ids: { 'folder-asset': 'folder-1' } }] }))
+      if (url === '/api/tags') return Promise.resolve(jsonResponse({ items: [] }))
+      return Promise.reject(new Error(`Unexpected request: ${url}`))
+    })
+    const user = userEvent.setup()
+
+    render(<App />)
+    await user.click(await screen.findByRole('button', { name: /^Drucker\b/ }))
+    await user.click(await screen.findByRole('button', { name: 'Counter' }))
+    expect(await screen.findByRole('heading', { name: 'Counter' })).toBeVisible()
+
+    fireEvent.popState(window, { state: { printvaultExplorer: true, location: { libraryKey: null, projectId: 'project-1', folderId: null, showProjects: false } } })
+
+    expect(await screen.findByRole('heading', { name: 'Drucker' })).toBeVisible()
+    expect(screen.getByRole('button', { name: /Root\.stl/i })).toBeVisible()
+    expect(screen.queryByRole('button', { name: /Folder\.stl/i })).not.toBeInTheDocument()
+  })
+
   it('renders the localized asset loading failure without demo content', async () => {
     const fetchMock = vi.mocked(fetch)
     fetchMock.mockImplementation((input: RequestInfo | URL) => {

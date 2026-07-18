@@ -32,6 +32,19 @@ function readExplorerLocation(): ExplorerLocation {
   } catch { return { libraryKey: null, projectId: null, folderId: null, showProjects: false } }
 }
 
+function explorerLocationFromHistoryState(state: unknown): ExplorerLocation | null {
+  if (!state || typeof state !== 'object') return null
+  const record = state as { printvaultExplorer?: unknown, location?: unknown }
+  if (record.printvaultExplorer !== true || !record.location || typeof record.location !== 'object') return null
+  const location = record.location as Partial<ExplorerLocation>
+  return {
+    libraryKey: typeof location.libraryKey === 'string' ? location.libraryKey : null,
+    projectId: typeof location.projectId === 'string' ? location.projectId : null,
+    folderId: typeof location.folderId === 'string' ? location.folderId : null,
+    showProjects: location.showProjects === true,
+  }
+}
+
 function SearchIcon() {
   return <svg aria-hidden="true" fill="none" height="17" viewBox="0 0 24 24" width="17"><circle cx="11" cy="11" r="6.5" stroke="currentColor" strokeWidth="1.8" /><path d="m16 16 4.2 4.2" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" /></svg>
 }
@@ -175,6 +188,22 @@ export default function App() {
   }, [activeFolder, activeLibrary, activeProject, showProjects])
 
   useEffect(() => {
+    window.history.replaceState({ printvaultExplorer: true, location: initialExplorerLocation }, '', window.location.href)
+    const onPopState = (event: PopStateEvent) => {
+      const location = explorerLocationFromHistoryState(event.state)
+      if (!location) return
+      setActiveLibrary(location.libraryKey)
+      setActiveProject(location.projectId)
+      setActiveFolder(location.folderId)
+      setShowProjects(location.showProjects)
+      setSelectedAsset(null)
+      setSelectionState('idle')
+    }
+    window.addEventListener('popstate', onPopState)
+    return () => window.removeEventListener('popstate', onPopState)
+  }, [initialExplorerLocation])
+
+  useEffect(() => {
     applyTheme(preference)
     if (preference !== 'system') return undefined
     const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
@@ -216,6 +245,14 @@ export default function App() {
     ? activeLibrary
     : libraries.find((library) => library.key === 'models')?.key ?? libraries.find((library) => library.key !== 'archive')?.key ?? null
 
+  const navigateExplorer = (location: ExplorerLocation) => {
+    window.history.pushState({ printvaultExplorer: true, location }, '', window.location.href)
+    setActiveLibrary(location.libraryKey)
+    setActiveProject(location.projectId)
+    setActiveFolder(location.folderId)
+    setShowProjects(location.showProjects)
+  }
+
   const handleUpload = async (incoming: FileList | File[]) => {
     const files = Array.from(incoming)
     if (!canUpload || !uploadLibrary || files.length === 0 || uploading) return
@@ -236,10 +273,7 @@ export default function App() {
   }
 
   const chooseLibrary = async (libraryKey: string | null) => {
-    setActiveLibrary(libraryKey)
-    setActiveProject(null)
-    setActiveFolder(null)
-    setShowProjects(false)
+    navigateExplorer({ libraryKey, projectId: null, folderId: null, showProjects: false })
     setSelectedAsset(null)
     setSelectionState('idle')
     setAssetState('loading')
@@ -250,10 +284,7 @@ export default function App() {
   }
 
   const chooseProject = async (projectId: string) => {
-    setActiveProject(projectId)
-    setActiveFolder(null)
-    setActiveLibrary(null)
-    setShowProjects(false)
+    navigateExplorer({ libraryKey: null, projectId, folderId: null, showProjects: false })
     setSelectedAsset(null)
     setSelectionState('idle')
     setAssetState('loading')
@@ -266,16 +297,14 @@ export default function App() {
   }
 
   const chooseProjects = () => {
-    setActiveProject(null)
-    setActiveFolder(null)
-    setActiveLibrary(null)
-    setShowProjects(true)
+    navigateExplorer({ libraryKey: null, projectId: null, folderId: null, showProjects: true })
     setSelectedAsset(null)
     setSelectionState('idle')
   }
 
   const chooseFolder = (folderId: string | null) => {
-    setActiveFolder(folderId)
+    if (!activeProject) return
+    navigateExplorer({ libraryKey: null, projectId: activeProject, folderId, showProjects: false })
     setSelectedAsset(null)
     setSelectionState('idle')
   }
