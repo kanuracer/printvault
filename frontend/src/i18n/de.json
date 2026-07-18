@@ -8,6 +8,7 @@
     "signInTitle": "Bei PrintVault anmelden",
     "signInDescription": "Melde dich mit deinem Organisationskonto an, um auf die Modellbibliothek zuzugreifen.",
     "signIn": "Anmelden",
+    "signInAgain": "Erneut anmelden",
     "accessDeniedTitle": "Zugriff verweigert",
     "accessDeniedDescription": "Du hast keinen Zugriff auf PrintVault.",
     "sessionErrorTitle": "Sitzung konnte nicht geprüft werden",

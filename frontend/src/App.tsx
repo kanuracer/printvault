@@ -139,7 +139,7 @@ export default function App() {
           <div className="brand"><div className="brand-mark"><CubeIcon /></div><span className="brand-name">{t('app.name')}</span></div>
           <h1>{t(titleKey)}</h1>
           {descriptionKey && <p className="inspector-description">{t(descriptionKey)}</p>}
-          {authState === 'unauthenticated' && <a className="primary-button" href="/api/auth/login">{t('auth.signIn')}</a>}
+          {(authState === 'unauthenticated' || authState === 'denied') && <a className="primary-button" href="/api/auth/login">{t(authState === 'denied' ? 'auth.signInAgain' : 'auth.signIn')}</a>}
           {authState === 'error' && <button className="primary-button" onClick={loadWorkspace} type="button">{t('auth.retry')}</button>}
         </div>
       </main>

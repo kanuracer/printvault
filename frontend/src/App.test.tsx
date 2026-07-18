@@ -45,13 +45,14 @@ describe('PrintVault authenticated asset library', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/auth/me', expect.objectContaining({ credentials: 'same-origin' }))
   })
 
-  it('shows localized access denial and does not request assets for a forbidden BFF session', async () => {
+  it('shows localized access denial with a fresh sign-in action for a forbidden BFF session', async () => {
     const fetchMock = vi.mocked(fetch)
     fetchMock.mockResolvedValueOnce(jsonResponse({ detail: 'PrintVault access is not granted' }, 403))
 
     render(<App />)
 
     expect(await screen.findByText('Du hast keinen Zugriff auf PrintVault.')).toBeVisible()
+    expect(screen.getByRole('link', { name: 'Erneut anmelden' })).toHaveAttribute('href', '/api/auth/login')
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 

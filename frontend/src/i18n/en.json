@@ -8,6 +8,7 @@
     "signInTitle": "Sign in to PrintVault",
     "signInDescription": "Sign in with your organization account to access the model library.",
     "signIn": "Sign in",
+    "signInAgain": "Sign in again",
     "accessDeniedTitle": "Access denied",
     "accessDeniedDescription": "You do not have access to PrintVault.",
     "sessionErrorTitle": "Session check failed",
