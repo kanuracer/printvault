@@ -92,21 +92,24 @@
 4. Add migrations and test MariaDB-compatible columns/indexes.
 5. Test all role/action matrix entries, especially permanent delete restricted to admin.
 
-### Task 5: OIDC-only auth middleware
+### Task 5: OIDC-only BFF auth middleware
 
-**Objective:** Validate bearer tokens from Nextcloud OIDC and reject non-OIDC access.
+**Objective:** Authenticate through Nextcloud OIDC Authorization Code Flow with PKCE and reject non-OIDC access.
 
 **Files:**
 - Create: `backend/app/auth/oidc.py`
+- Create: `backend/app/auth/session.py`
 - Create: `backend/app/auth/dependencies.py`
 - Test: `backend/tests/test_oidc.py`
 
 **Steps:**
-1. Fetch/cache JWKS using issuer discovery endpoint.
-2. Validate issuer, audience/client ID, expiry, subject and required groups claim.
-3. Return 401 for missing/invalid token and 403 for valid token without mapped role.
-4. Add test fixtures with signed local keys and group combinations.
-5. Do not implement password auth, API keys, guest mode or bypass flags.
+1. Discover/cache provider metadata and JWKS from `https://pcloud.kanuracer.eu/.well-known/openid-configuration`.
+2. Implement server-side Authorization Code Flow with PKCE. Registered redirect URI is exactly `https://printvault.kanuracer.de/api/auth/callback`.
+3. Exchange code server-side using confidential-client `client_secret_post`; secret is read only from `PRINTVAULT_OIDC_CLIENT_SECRET_FILE`/root-only Docker secret.
+4. Validate issuer, audience/client ID, expiry, subject and `groups` claim; create short-lived encrypted HttpOnly/Secure/SameSite=Lax app session.
+5. Return 401 for missing/invalid session and 403 for valid identity without mapped role.
+6. Add test fixtures for login-state/nonce/PKCE validation, callback failure, group mapping and logout.
+7. Do not implement password auth, API keys, guest mode, token storage in browser localStorage or bypass flags.
 
 ### Task 6: Safe writable filesystem service
 
