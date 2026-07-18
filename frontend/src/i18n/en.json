@@ -91,7 +91,16 @@
     "create": "Create project",
     "name": "Project name",
     "description": "Description",
-    "assign": "Assign project"
+    "assign": "Assign project",
+    "assigned": "“{{asset}}” was assigned to “{{project}}”.",
+    "assignFailed": "Project assignment failed.",
+    "folder": "Folder",
+    "folderRoot": "Project root",
+    "folderCreate": "Create folder",
+    "folderName": "New folder",
+    "folderParent": "Parent folder",
+    "folderCreated": "Folder created.",
+    "folderCreateFailed": "Folder could not be created."
   },
   "tags": {
     "create": "Create tag",

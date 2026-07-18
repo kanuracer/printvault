@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
@@ -147,6 +147,26 @@ describe('PrintVault authenticated asset library', () => {
       'href',
       '/api/assets/asset%20id%2F1/download',
     )
+  })
+
+  it('puts download directly below the title and renders escaped descriptions as readable text', async () => {
+    const asset = {
+      id: 'asset id/1', library_key: 'models', relative_path: 'Topper.3mf', filename: 'Topper.3mf', format: '3mf', tags: [], favorite: false, archived: false,
+      metadata: { three_mf: { core: { description: '&lt;p&gt;Ready to print “oh baby topper” &lt;/p&gt;&lt;p&gt;Happy printing.&lt;/p&gt;' } } },
+    }
+    vi.mocked(fetch).mockImplementation(authenticatedResponses([asset], asset))
+    const user = userEvent.setup()
+
+    render(<App />)
+    await user.click(await screen.findByRole('button', { name: /Topper\.3mf/i }))
+
+    const inspector = screen.getByRole('complementary', { name: 'Details' })
+    const title = await within(inspector).findByRole('heading', { name: 'Topper.3mf' })
+    const download = within(inspector).getByRole('link', { name: 'Herunterladen' })
+    expect(title.compareDocumentPosition(download) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(screen.getByText('Ready to print “oh baby topper”')).toBeVisible()
+    expect(screen.getByText('Happy printing.')).toBeVisible()
+    expect(screen.queryByText(/&lt;p&gt;/)).not.toBeInTheDocument()
   })
 
 

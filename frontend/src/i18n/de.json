@@ -91,7 +91,16 @@
     "create": "Projekt erstellen",
     "name": "Projektname",
     "description": "Beschreibung",
-    "assign": "Projekt zuweisen"
+    "assign": "Projekt zuweisen",
+    "assigned": "„{{asset}}“ wurde „{{project}}“ zugewiesen.",
+    "assignFailed": "Projektzuweisung fehlgeschlagen.",
+    "folder": "Ordner",
+    "folderRoot": "Projektwurzel",
+    "folderCreate": "Ordner erstellen",
+    "folderName": "Neuer Ordner",
+    "folderParent": "Übergeordneter Ordner",
+    "folderCreated": "Ordner erstellt.",
+    "folderCreateFailed": "Ordner konnte nicht erstellt werden."
   },
   "tags": {
     "create": "Tag erstellen",
