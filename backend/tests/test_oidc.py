@@ -59,7 +59,7 @@ def make_id_token(*, private_key: object, nonce: str, groups: list[str], subject
     )
 
 
-def oidc_http_client(token_supplier):
+def oidc_http_client(token_supplier, *, userinfo_groups: list[str] | None = None):
     from cryptography.hazmat.primitives.asymmetric import rsa
     from jwt.algorithms import RSAAlgorithm
 
@@ -78,12 +78,16 @@ def oidc_http_client(token_supplier):
                     "authorization_endpoint": f"{ISSUER}/authorize",
                     "token_endpoint": f"{ISSUER}/token",
                     "jwks_uri": f"{ISSUER}/jwks",
+                    "userinfo_endpoint": f"{ISSUER}/userinfo",
                 },
             )
         if request.method == "GET" and request.url == httpx.URL(f"{ISSUER}/jwks"):
             return httpx.Response(200, json={"keys": [jwk]})
         if request.method == "POST" and request.url == httpx.URL(f"{ISSUER}/token"):
-            return httpx.Response(200, json={"id_token": token_supplier(private_key)})
+            return httpx.Response(200, json={"id_token": token_supplier(private_key), "access_token": "test-access-token"})
+        if request.method == "GET" and request.url == httpx.URL(f"{ISSUER}/userinfo") and userinfo_groups is not None:
+            assert request.headers["authorization"] == "Bearer test-access-token"
+            return httpx.Response(200, json={"sub": "nextcloud-user", "groups": userinfo_groups})
         return httpx.Response(404)
 
     return httpx.Client(transport=httpx.MockTransport(handler)), requests
@@ -173,6 +177,26 @@ def test_me_returns_401_without_a_valid_session(tmp_path: Path) -> None:
     response = TestClient(app, base_url="https://printvault.example.test").get("/api/auth/me")
 
     assert response.status_code == 401
+
+
+def test_callback_uses_userinfo_groups_when_id_token_does_not_grant_access(tmp_path: Path) -> None:
+    nonce_holder: dict[str, str] = {}
+    client_http, _ = oidc_http_client(
+        lambda private_key: make_id_token(private_key=private_key, nonce=nonce_holder["nonce"], groups=[]),
+        userinfo_groups=["printvault_admin"],
+    )
+    app = main.create_app(settings_for_auth(tmp_path), http_client=client_http)
+    client = TestClient(app, base_url="https://printvault.example.test")
+
+    login = client.get("/api/auth/login", follow_redirects=False)
+    query = parse_qs(urlparse(login.headers["location"]).query)
+    nonce_holder["nonce"] = query["nonce"][0]
+    callback = client.get(
+        "/api/auth/callback", params={"code": "authorization-code", "state": query["state"][0]}, follow_redirects=False
+    )
+
+    assert callback.status_code == 303
+    assert client.get("/api/auth/me").json() == {"subject": "nextcloud-user", "role": "admin"}
 
 
 def test_valid_session_without_an_exact_printvault_group_is_forbidden(tmp_path: Path) -> None:

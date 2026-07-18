@@ -149,12 +149,21 @@ def create_app(settings: Settings | None = None, *, http_client: httpx.Client | 
                 metadata = client.discover()
                 tokens = client.exchange_code(metadata, code=code, verifier=verifier)
                 claims = client.validate_id_token(metadata, id_token=tokens["id_token"], expected_nonce=nonce)
+                groups_claim = claims.get(current_settings.oidc_groups_claim)
+                groups = groups_claim if isinstance(groups_claim, list) and all(isinstance(group, str) for group in groups_claim) else None
+                role = role_for_groups(groups)
+                access_token = tokens.get("access_token")
+                if role is None and not groups and isinstance(access_token, str):
+                    userinfo = client.userinfo(metadata, access_token=access_token)
+                    userinfo_subject = userinfo.get("sub")
+                    if not isinstance(userinfo_subject, str) or not compare_digest(userinfo_subject, claims["sub"]):
+                        raise OIDCError("OIDC userinfo subject is invalid")
+                    groups_claim = userinfo.get(current_settings.oidc_groups_claim)
+                    groups = groups_claim if isinstance(groups_claim, list) and all(isinstance(group, str) for group in groups_claim) else None
+                    role = role_for_groups(groups)
         except OIDCError as error:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="OIDC authentication failed") from error
 
-        groups_claim = claims.get(current_settings.oidc_groups_claim)
-        groups = groups_claim if isinstance(groups_claim, list) and all(isinstance(group, str) for group in groups_claim) else None
-        role = role_for_groups(groups)
         subject = claims["sub"]
         session_cookie = _serializer(current_settings, "session").dumps({"subject": subject, "role": role})
         response = RedirectResponse("/", status_code=status.HTTP_303_SEE_OTHER)

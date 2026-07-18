@@ -247,6 +247,9 @@ networks:
         self.assertIn("proxy_temp_path /var/cache/nginx/proxy_temp;", nginx_config)
         self.assertIn("location = /api { return 308 /api/; }", nginx_config)
         self.assertIn("proxy_pass http://127.0.0.1:8000;", nginx_config)
+        self.assertIn("log_format privacy_safe", nginx_config)
+        self.assertIn("$request_method $uri $server_protocol", nginx_config)
+        self.assertNotIn("access_log /dev/stdout;", nginx_config)
 
 
 if __name__ == "__main__":

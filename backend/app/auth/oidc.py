@@ -27,6 +27,7 @@ class OIDCMetadata:
     authorization_endpoint: str
     token_endpoint: str
     jwks_uri: str
+    userinfo_endpoint: str | None
 
 
 class OIDCClient:
@@ -51,6 +52,7 @@ class OIDCClient:
             authorization_endpoint=self._required_payload_string(payload, "authorization_endpoint"),
             token_endpoint=self._required_payload_string(payload, "token_endpoint"),
             jwks_uri=self._required_payload_string(payload, "jwks_uri"),
+            userinfo_endpoint=self._optional_payload_string(payload, "userinfo_endpoint"),
         )
         if not compare_digest(metadata.issuer, issuer):
             raise OIDCError("OIDC issuer does not match configured issuer")
@@ -133,6 +135,25 @@ class OIDCClient:
         if not isinstance(subject, str) or not subject:
             raise OIDCError("ID token subject is invalid")
         return claims
+
+    def userinfo(self, metadata: OIDCMetadata, *, access_token: str) -> dict[str, Any]:
+        """Read claims only from the discovered UserInfo endpoint using the exchanged token."""
+        if metadata.userinfo_endpoint is None or not access_token:
+            raise OIDCError("OIDC userinfo is unavailable")
+        try:
+            response = self._http.get(metadata.userinfo_endpoint, headers={"Authorization": f"Bearer {access_token}"})
+            response.raise_for_status()
+            payload = response.json()
+        except (httpx.HTTPError, ValueError) as error:
+            raise OIDCError("OIDC userinfo failed") from error
+        if not isinstance(payload, dict):
+            raise OIDCError("OIDC userinfo response is invalid")
+        return payload
+
+    @staticmethod
+    def _optional_payload_string(payload: dict[str, Any], key: str) -> str | None:
+        value = payload.get(key)
+        return value if isinstance(value, str) and value else None
 
     @staticmethod
     def _required_payload_string(payload: dict[str, Any], key: str) -> str:
