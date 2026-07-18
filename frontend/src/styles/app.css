@@ -112,6 +112,12 @@ h1 { font-size: clamp(25px, 3vw, 32px); font-weight: 590; letter-spacing: -.7px;
 .project-pill:hover, .project-pill:focus-visible { background: color-mix(in srgb, var(--accent) 16%, var(--surface)); border-color: var(--accent); outline: none; }
 .inline-form input, .inline-form textarea, .inline-form select, .project-folder-form input, .project-folder-form select, .project-assignment select { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; color: var(--text-primary); color-scheme: dark; min-height: 34px; padding: 7px 9px; width: 100%; }
 .inline-form textarea { min-height: 70px; resize: vertical; }
+.modal-backdrop { align-items: center; background: rgb(0 0 0 / .62); display: flex; inset: 0; justify-content: center; padding: 24px; position: fixed; z-index: 20; }
+.project-modal { background: var(--panel); border: 1px solid var(--border-strong); border-radius: 12px; box-shadow: 0 24px 80px rgb(0 0 0 / .52); display: grid; gap: 14px; max-width: 520px; padding: 20px; width: min(100%, 520px); }
+.project-modal h2 { font-size: 18px; margin: 0; }
+.project-modal label { color: var(--text-secondary); display: grid; font-size: 12px; gap: 6px; }
+.project-modal input, .project-modal textarea { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; color: var(--text-primary); min-height: 38px; padding: 8px 10px; width: 100%; }
+.project-modal textarea { min-height: 110px; resize: vertical; }
 .form-actions, .management-heading { align-items: center; display: flex; gap: 8px; justify-content: flex-end; }
 .management-heading { justify-content: space-between; }
 .management-heading h3 { font-size: 13px; margin: 0; }

@@ -401,9 +401,10 @@ describe('PrintVault authenticated asset library', () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true)
 
     render(<App />)
-    await user.click(await screen.findByRole('button', { name: 'Projekt erstellen' }))
-    await user.type(screen.getByLabelText('Projektname'), 'Drucker')
-    await user.click(screen.getByRole('button', { name: 'Speichern' }))
+    await user.click(await screen.findByRole('button', { name: 'Projekt hinzufügen' }))
+    const projectDialog = await screen.findByRole('dialog', { name: 'Projekt erstellen' })
+    await user.type(within(projectDialog).getByLabelText('Projektname'), 'Drucker')
+    await user.click(within(projectDialog).getByRole('button', { name: 'Speichern' }))
     expect(await screen.findByRole('navigation', { name: 'Projekte' })).toBeVisible()
     expect(screen.getByRole('button', { name: /^Drucker\b/ })).toBeVisible()
     await user.click(screen.getByRole('button', { name: /Widget\.stl/i }))
