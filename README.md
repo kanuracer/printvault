@@ -23,6 +23,53 @@ cp .env.example .env
 mkdir -p models archive data thumbnails secrets
 ```
 
+### `compose.yaml` example: published image
+
+The checked-in `compose.yaml` builds from local source. To run the published immutable image instead, replace it with this example:
+
+```yaml
+services:
+  printvault:
+    image: ghcr.io/kanuracer/printvault:0.1.0
+    container_name: printvault
+    user: "99:100"
+    restart: unless-stopped
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:mode=1777,size=640m
+      - /var/cache/nginx:uid=99,gid=100,mode=0750,size=640m
+    env_file:
+      - .env
+    environment:
+      PRINTVAULT_DATABASE_URL_FILE: /run/secrets/database_url
+      PRINTVAULT_OIDC_CLIENT_ID_FILE: /run/secrets/oidc_client_id
+      PRINTVAULT_OIDC_CLIENT_SECRET_FILE: /run/secrets/oidc_client_secret
+      PRINTVAULT_SESSION_SECRET_FILE: /run/secrets/session_secret
+    volumes:
+      - ./models:/libraries/models:rw
+      - ./archive:/libraries/archive:rw
+      - ./data:/var/lib/printvault:rw
+      - ./thumbnails:/var/lib/printvault/thumbnails:rw
+      - ./secrets/database_url:/run/secrets/database_url:ro
+      - ./secrets/oidc_client_id:/run/secrets/oidc_client_id:ro
+      - ./secrets/oidc_client_secret:/run/secrets/oidc_client_secret:ro
+      - ./secrets/session_secret:/run/secrets/session_secret:ro
+    ports:
+      - "127.0.0.1:8080:8080"
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=3).read()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+```
+
+`0.1.0` is immutable. `latest` is also available, but use a version tag for production. The registry image is public; no `docker login` is needed.
+
 Edit `.env` and replace the example OIDC URLs with your own HTTPS issuer and public callback URL. Create these files in `secrets/`; they are ignored by Git:
 
 ```text
@@ -47,7 +94,8 @@ openssl rand -hex 32 > secrets/session_secret
 Start the container:
 
 ```bash
-docker compose up --build -d
+docker compose pull
+docker compose up -d
 docker compose ps
 ```
 
