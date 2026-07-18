@@ -1,0 +1,50 @@
+.model-viewer {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.model-viewer-canvas {
+  background: radial-gradient(circle at 50% 38%, color-mix(in srgb, var(--accent) 18%, transparent), transparent 48%), var(--preview);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  min-height: 320px;
+  overflow: hidden;
+  position: relative;
+}
+
+.model-viewer-canvas canvas {
+  display: block;
+  height: 100%;
+  width: 100%;
+}
+
+.model-viewer-status {
+  color: var(--text-muted);
+  font-size: 13px;
+  margin: 0;
+}
+
+.model-viewer-status.is-error { color: #d05b6d; }
+
+.model-viewer-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.model-viewer-controls button {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  min-height: 34px;
+  padding: 0 10px;
+}
+
+.model-viewer-controls button[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  border-color: var(--accent);
+  color: var(--text-primary);
+}

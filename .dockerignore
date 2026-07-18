@@ -1,0 +1,40 @@
+# Version-control and editor metadata
+.git/
+.github/
+.idea/
+.vscode/
+
+# Secrets and local env
+.env
+.env.*
+!.env.example
+secrets/
+*.pem
+*.key
+*.token
+
+# Python local state
+backend/.venv/
+backend/.pytest_cache/
+backend/.coverage
+backend/__pycache__/
+**/__pycache__/
+*.py[cod]
+
+# Node local state
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Generated application/runtime data
+data/
+thumbnails/
+backups/
+*.sqlite
+*.sqlite3
+*.db
+
+# Test evidence
+playwright-report/
+test-results/
+docs/test-evidence/

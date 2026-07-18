@@ -1,0 +1,67 @@
+{
+  "app": {
+    "name": "PrintVault",
+    "tagline": "3D-Modellbibliothek"
+  },
+  "auth": {
+    "loading": "Sitzung wird geprüft",
+    "signInTitle": "Bei PrintVault anmelden",
+    "signInDescription": "Melde dich mit deinem Organisationskonto an, um auf die Modellbibliothek zuzugreifen.",
+    "signIn": "Anmelden",
+    "accessDeniedTitle": "Zugriff verweigert",
+    "accessDeniedDescription": "Du hast keinen Zugriff auf PrintVault.",
+    "sessionErrorTitle": "Sitzung konnte nicht geprüft werden",
+    "sessionErrorDescription": "Deine Sitzung konnte nicht geprüft werden. Bitte versuche es erneut.",
+    "retry": "Erneut versuchen"
+  },
+  "navigation": {
+    "libraries": "Bibliotheken",
+    "allAssets": "Alle Modelle"
+  },
+  "topbar": {
+    "searchLabel": "Modelle durchsuchen",
+    "searchPlaceholder": "Modelle, Tags und Dateien durchsuchen",
+    "menu": "Navigation öffnen"
+  },
+  "content": {
+    "eyebrow": "Bibliothek",
+    "title": "Modelle",
+    "resultCount_one": "{{count}} Modell",
+    "resultCount_other": "{{count}} Modelle",
+    "loading": "Modelle werden geladen",
+    "emptyTitle": "Noch keine Modelle",
+    "emptyDescription": "Neue Modelle erscheinen hier, sobald sie verfügbar sind.",
+    "error": "Modelle konnten nicht geladen werden.",
+    "retry": "Erneut versuchen",
+    "assetMeta": "{{format}} · {{path}}",
+    "assetMetaWithSize": "{{format}} · {{path}} · {{size}}",
+    "fileSize": "{{size}} MB"
+  },
+  "inspector": {
+    "label": "Details",
+    "emptyTitle": "Modell auswählen",
+    "emptyDescription": "Wähle ein Modell aus der Bibliothek, um Details zu sehen.",
+    "loading": "Modelldetails werden geladen",
+    "error": "Modelldetails konnten nicht geladen werden.",
+    "format": "Format",
+    "path": "Pfad",
+    "size": "Dateigröße",
+    "download": "Herunterladen"
+  },
+  "appearance": {
+    "label": "Darstellung",
+    "dark": "Dunkel",
+    "light": "Hell",
+    "system": "System"
+  },
+  "viewer": {
+    "loading": "Modell wird geladen",
+    "unsupported": "Nicht unterstütztes Modell",
+    "oversized": "Die Modelldatei ist zu groß",
+    "parseFailure": "Das Modell konnte nicht gelesen werden",
+    "resetView": "Ansicht zurücksetzen",
+    "wireframe": "Drahtgitter",
+    "grid": "Raster",
+    "axes": "Achsen"
+  }
+}

@@ -1,0 +1,67 @@
+{
+  "app": {
+    "name": "PrintVault",
+    "tagline": "3D model library"
+  },
+  "auth": {
+    "loading": "Checking your session",
+    "signInTitle": "Sign in to PrintVault",
+    "signInDescription": "Sign in with your organization account to access the model library.",
+    "signIn": "Sign in",
+    "accessDeniedTitle": "Access denied",
+    "accessDeniedDescription": "You do not have access to PrintVault.",
+    "sessionErrorTitle": "Session check failed",
+    "sessionErrorDescription": "Your session could not be checked. Please try again.",
+    "retry": "Try again"
+  },
+  "navigation": {
+    "libraries": "Libraries",
+    "allAssets": "All models"
+  },
+  "topbar": {
+    "searchLabel": "Search models",
+    "searchPlaceholder": "Search models, tags, and files",
+    "menu": "Open navigation"
+  },
+  "content": {
+    "eyebrow": "Library",
+    "title": "Models",
+    "resultCount_one": "{{count}} model",
+    "resultCount_other": "{{count}} models",
+    "loading": "Loading models",
+    "emptyTitle": "No models yet",
+    "emptyDescription": "New models will appear here when they are available.",
+    "error": "Models could not be loaded.",
+    "retry": "Try again",
+    "assetMeta": "{{format}} · {{path}}",
+    "assetMetaWithSize": "{{format}} · {{path}} · {{size}}",
+    "fileSize": "{{size}} MB"
+  },
+  "inspector": {
+    "label": "Details",
+    "emptyTitle": "Select a model",
+    "emptyDescription": "Select a model from the library to see its details.",
+    "loading": "Loading model details",
+    "error": "Model details could not be loaded.",
+    "format": "Format",
+    "path": "Path",
+    "size": "File size",
+    "download": "Download"
+  },
+  "appearance": {
+    "label": "Appearance",
+    "dark": "Dark",
+    "light": "Light",
+    "system": "System"
+  },
+  "viewer": {
+    "loading": "Loading model",
+    "unsupported": "Unsupported model",
+    "oversized": "The model file is too large",
+    "parseFailure": "The model could not be parsed",
+    "resetView": "Reset view",
+    "wireframe": "Wireframe",
+    "grid": "Grid",
+    "axes": "Axes"
+  }
+}

@@ -1,0 +1,57 @@
+services:
+  printvault:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: printvault:local
+    container_name: printvault
+    user: "99:100"
+    restart: unless-stopped
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:mode=1777
+      - /var/cache/nginx:uid=99,gid=100,mode=0750
+    environment:
+      PRINTVAULT_DATABASE_URL_FILE: "/run/secrets/printvault_database_url"
+      PRINTVAULT_ENVIRONMENT: "production"
+      PRINTVAULT_OIDC_ISSUER_URL: "https://pcloud.kanuracer.eu"
+      PRINTVAULT_OIDC_CLIENT_ID_FILE: "/run/secrets/printvault_oidc_client_id"
+      PRINTVAULT_OIDC_CLIENT_SECRET_FILE: "/run/secrets/printvault_oidc_client_secret"
+      PRINTVAULT_OIDC_REDIRECT_URI: "https://printvault.kanuracer.de/api/auth/callback"
+      PRINTVAULT_OIDC_GROUPS_CLAIM: "groups"
+      PRINTVAULT_SESSION_SECRET_FILE: "/run/secrets/printvault_session_secret"
+      PRINTVAULT_LIBRARY_MODELS_ROOT: "/libraries/modelle"
+      PRINTVAULT_LIBRARY_PROJECTS_ROOT: "/libraries/projekte"
+      PRINTVAULT_LIBRARY_ARCHIVE_ROOT: "/libraries/archiv"
+      PRINTVAULT_DATA_ROOT: "/var/lib/printvault"
+      PRINTVAULT_THUMBNAILS_ROOT: "/var/lib/printvault/thumbnails"
+    volumes:
+      - /mnt/user/appdata/printvault/modelle:/libraries/modelle:rw
+      - /mnt/user/appdata/printvault/projekte:/libraries/projekte:rw
+      - /mnt/user/appdata/printvault/archiv:/libraries/archiv:rw
+      - /mnt/user/appdata/printvault/data:/var/lib/printvault:rw
+      - /mnt/user/appdata/printvault/thumbnails:/var/lib/printvault/thumbnails:rw
+      - /mnt/user/appdata/printvault/secrets/database_url:/run/secrets/printvault_database_url:ro
+      - /mnt/user/appdata/printvault/secrets/oidc_client_id:/run/secrets/printvault_oidc_client_id:ro
+      - /mnt/user/appdata/printvault/secrets/oidc_client_secret:/run/secrets/printvault_oidc_client_secret:ro
+      - /mnt/user/appdata/printvault/secrets/session_secret:/run/secrets/printvault_session_secret:ro
+    healthcheck:
+      test:
+        - CMD
+        - python3
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=3).read()"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    networks:
+      - web_net
+
+networks:
+  web_net:
+    external: true
