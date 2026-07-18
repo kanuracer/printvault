@@ -5,13 +5,14 @@ from __future__ import annotations
 import os
 from collections import defaultdict
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
 
 from app.services.filesystem import LibraryLike, SafeFilesystem, UnsafePathError, UnsupportedMutationError
 from app.services.metadata import FileFingerprint, GeometryMetadata, SUPPORTED_FORMATS, extract_geometry, fingerprint_model
 from app.services.thumbnails import ThumbnailCache
+from app.services.three_mf_metadata import ThreeMfExtractionError, extract_three_mf_metadata
 
 
 @dataclass(frozen=True)
@@ -24,6 +25,7 @@ class IndexedAsset:
     fingerprint: FileFingerprint
     geometry: GeometryMetadata
     thumbnail_path: str
+    metadata: dict[str, object] = field(default_factory=dict)
     missing: bool = False
 
 
@@ -98,6 +100,7 @@ class LibraryIndexer:
                 else:
                     thumbnail_path = str(thumbnail.path)
 
+                metadata = _three_mf_metadata(resolved, fingerprint.format)
                 record = IndexedAsset(
                     library_key=identity.key,
                     relative_path=relative_path,
@@ -105,6 +108,7 @@ class LibraryIndexer:
                     fingerprint=fingerprint,
                     geometry=geometry,
                     thumbnail_path=thumbnail_path,
+                    metadata=metadata,
                 )
                 if existing is None:
                     self.repository.create(record)
@@ -115,6 +119,29 @@ class LibraryIndexer:
 
         missing = self.repository.mark_missing(identity.key, present)
         return ScanResult(created=created, updated=updated, unchanged=unchanged, missing=missing, skipped=skipped, failed=failed)
+
+
+def _three_mf_metadata(path: Path, format_name: str) -> dict[str, object]:
+    if format_name != "3mf":
+        return {}
+    try:
+        extraction = extract_three_mf_metadata(path)
+    except (OSError, ValueError, ThreeMfExtractionError):
+        return {}
+    return {
+        "three_mf": {
+            "core": dict(extraction.metadata),
+            "documents": [
+                {
+                    "label": document.display_label,
+                    "content_type": document.content_type,
+                    "byte_size": document.byte_size,
+                    **({"text": document.text_content} if document.text_content is not None else {}),
+                }
+                for document in extraction.documents
+            ],
+        }
+    }
 
 
 def duplicate_groups(assets: Iterable[IndexedAsset]) -> dict[str, tuple[IndexedAsset, ...]]:

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import './i18n'
-import { ApiError, assetDownloadUrl, getAsset, getAssets, getCurrentUser, getLibraries, uploadFiles, type Asset, type Library, type UserRole } from './api'
+import { ApiError, archiveAsset, assetDownloadUrl, assignProjectAsset, createProject, createTag, deleteAsset, getAsset, getAssets, getCurrentUser, getLibraries, getProjects, getTags, restoreAsset, setAssetTags, uploadFiles, type Asset, type Library, type Project, type Tag, type UserRole } from './api'
 import { ModelViewer } from './features/viewer/ModelViewer'
 import { AssetThumbnail } from './features/viewer/AssetThumbnail'
 import type { ViewerSource } from './features/viewer/viewerSource'
@@ -34,6 +34,26 @@ function byteSizeInMegabytes(byteSize: number): string {
   return new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 }).format(byteSize / (1024 * 1024))
 }
 
+function threeMfCore(asset: Asset): Array<[string, string]> {
+  const packageMetadata = asset.metadata.three_mf
+  if (!packageMetadata || typeof packageMetadata !== 'object') return []
+  const core = (packageMetadata as Record<string, unknown>).core
+  if (!core || typeof core !== 'object') return []
+  return Object.entries(core as Record<string, unknown>).flatMap(([key, value]) => typeof value === 'string' ? [[key, value] as [string, string]] : [])
+}
+
+function threeMfDocuments(asset: Asset): Array<{ label: string, text?: string }> {
+  const packageMetadata = asset.metadata.three_mf
+  if (!packageMetadata || typeof packageMetadata !== 'object') return []
+  const documents = (packageMetadata as Record<string, unknown>).documents
+  if (!Array.isArray(documents)) return []
+  return documents.flatMap((document) => {
+    if (!document || typeof document !== 'object') return []
+    const item = document as Record<string, unknown>
+    return typeof item.label === 'string' ? [{ label: item.label, ...(typeof item.text === 'string' ? { text: item.text } : {}) }] : []
+  })
+}
+
 export default function App() {
   const { t } = useTranslation()
   const [preference, setPreference] = useState<ThemePreference>(readThemePreference)
@@ -42,6 +62,15 @@ export default function App() {
   const [assetState, setAssetState] = useState<AssetState>('loading')
   const [libraries, setLibraries] = useState<Library[]>([])
   const [assets, setAssets] = useState<Asset[]>([])
+  const [projects, setProjects] = useState<Project[]>([])
+  const [tags, setTags] = useState<Tag[]>([])
+  const [projectFormOpen, setProjectFormOpen] = useState(false)
+  const [tagFormOpen, setTagFormOpen] = useState(false)
+  const [projectName, setProjectName] = useState('')
+  const [projectDescription, setProjectDescription] = useState('')
+  const [tagKey, setTagKey] = useState('')
+  const [tagName, setTagName] = useState('')
+  const [selectedTagKeys, setSelectedTagKeys] = useState<string[]>([])
   const [activeLibrary, setActiveLibrary] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null)
@@ -64,10 +93,12 @@ export default function App() {
         setRole(user.role)
         setAuthState('authenticated')
         try {
-          const [nextLibraries, nextAssets] = await Promise.all([getLibraries(), getAssets()])
+          const [nextLibraries, nextAssets, nextProjects, nextTags] = await Promise.all([getLibraries(), getAssets(), getProjects(), getTags()])
           if (cancelled) return
           setLibraries(nextLibraries)
           setAssets(nextAssets)
+          setProjects(nextProjects)
+          setTags(nextTags)
           setAssetState('ready')
         } catch {
           if (!cancelled) setAssetState('error')
@@ -136,16 +167,96 @@ export default function App() {
     }
   }
 
+  const chooseLibrary = async (libraryKey: string | null) => {
+    setActiveLibrary(libraryKey)
+    setSelectedAsset(null)
+    setSelectionState('idle')
+    setAssetState('loading')
+    try {
+      setAssets(await getAssets(libraryKey))
+      setAssetState('ready')
+    } catch { setAssetState('error') }
+  }
+
+  const submitProject = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    try {
+      const project = await createProject(projectName.trim(), projectDescription.trim())
+      setProjects((current) => [...current, project].sort((left, right) => left.name.localeCompare(right.name)))
+      setProjectName('')
+      setProjectDescription('')
+      setProjectFormOpen(false)
+    } catch { setAssetState('error') }
+  }
+
+  const submitTag = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    try {
+      const tag = await createTag(tagKey.trim(), tagName.trim())
+      setTags((current) => [...current, tag].sort((left, right) => left.name.localeCompare(right.name)))
+      setSelectedTagKeys((current) => [...new Set([...current, tag.key])])
+      setTagKey('')
+      setTagName('')
+      setTagFormOpen(false)
+    } catch { setSelectionState('error') }
+  }
+
+  const saveSelectedTags = async () => {
+    if (!selectedAsset) return
+    try {
+      const updated = await setAssetTags(selectedAsset.id, selectedTagKeys)
+      setAssets((current) => current.map((asset) => asset.id === updated.id ? updated : asset))
+      setSelectedAsset(updated)
+    } catch { setSelectionState('error') }
+  }
+
+  const assignSelectedProject = async (projectId: string) => {
+    if (!selectedAsset || !projectId) return
+    try {
+      const updated = await assignProjectAsset(projectId, selectedAsset.id)
+      setProjects((current) => current.map((project) => project.id === updated.id ? updated : project))
+    } catch { setSelectionState('error') }
+  }
+
   const selectAsset = async (id: string) => {
     setSelectionState('loading')
     setSelectedAsset(null)
     try {
       const asset = await getAsset(id)
       setSelectedAsset(asset)
+      setSelectedTagKeys(asset.tags)
       setSelectionState('ready')
     } catch {
       setSelectionState('error')
     }
+  }
+
+  const archiveSelectedAsset = async () => {
+    if (!selectedAsset || !window.confirm(t('actions.archiveConfirm', { name: selectedAsset.filename }))) return
+    try {
+      const archived = await archiveAsset(selectedAsset.id)
+      setAssets((current) => current.map((asset) => asset.id === archived.id ? archived : asset))
+      setSelectedAsset(archived)
+    } catch { setSelectionState('error') }
+  }
+
+  const restoreSelectedAsset = async () => {
+    if (!selectedAsset || !window.confirm(t('actions.restoreConfirm', { name: selectedAsset.filename }))) return
+    try {
+      const restored = await restoreAsset(selectedAsset.id)
+      setAssets((current) => current.filter((asset) => asset.id !== restored.id))
+      setSelectedAsset(restored)
+    } catch { setSelectionState('error') }
+  }
+
+  const deleteSelectedAsset = async () => {
+    if (!selectedAsset || !window.confirm(t('actions.deleteConfirm', { name: selectedAsset.filename }))) return
+    try {
+      await deleteAsset(selectedAsset.id)
+      setAssets((current) => current.filter((asset) => asset.id !== selectedAsset.id))
+      setSelectedAsset(null)
+      setSelectionState('idle')
+    } catch { setSelectionState('error') }
   }
 
   if (authState !== 'authenticated') {
@@ -188,9 +299,9 @@ export default function App() {
         <nav aria-label={t('navigation.libraries')}>
           <p className="nav-label">{t('navigation.libraries')}</p>
           <div className="library-nav">
-            <button className={`nav-item ${activeLibrary === null ? 'is-active' : ''}`} onClick={() => setActiveLibrary(null)} type="button"><span className="nav-bullet" />{t('navigation.allAssets')}</button>
+            <button className={`nav-item ${activeLibrary === null ? 'is-active' : ''}`} onClick={() => void chooseLibrary(null)} type="button"><span className="nav-bullet" />{t('navigation.allAssets')}</button>
             {libraries.map((library) => (
-              <button className={`nav-item ${activeLibrary === library.key ? 'is-active' : ''}`} key={library.key} onClick={() => setActiveLibrary(library.key)} type="button"><span className="nav-bullet" />{library.name}</button>
+              <button className={`nav-item ${activeLibrary === library.key ? 'is-active' : ''}`} key={library.key} onClick={() => void chooseLibrary(library.key)} type="button"><span className="nav-bullet" />{library.name}</button>
             ))}
           </div>
         </nav>
@@ -212,7 +323,8 @@ export default function App() {
         </header>
 
         <section aria-label={t('content.title')} className="content">
-          <div className="content-header"><div><p className="section-label">{t('content.eyebrow')}</p><h1>{t('content.title')}</h1>{assetState === 'ready' && <p className="result-count">{t('content.resultCount', { count: visibleAssets.length })}</p>}</div></div>
+          <div className="content-header"><div><p className="section-label">{t('content.eyebrow')}</p><h1>{t('content.title')}</h1>{assetState === 'ready' && <p className="result-count">{t('content.resultCount', { count: visibleAssets.length })}</p>}</div>{canUpload && <button className="primary-button" onClick={() => setProjectFormOpen(true)} type="button">{t('projects.create')}</button>}</div>
+          {projectFormOpen && <form aria-label={t('projects.create')} className="inline-form" onSubmit={submitProject}><label>{t('projects.name')}<input autoFocus onChange={(event) => setProjectName(event.target.value)} required value={projectName} /></label><label>{t('projects.description')}<textarea onChange={(event) => setProjectDescription(event.target.value)} value={projectDescription} /></label><div className="form-actions"><button className="ghost-button" onClick={() => setProjectFormOpen(false)} type="button">{t('actions.cancel')}</button><button className="primary-button" type="submit">{t('actions.save')}</button></div></form>}
           {canUpload && uploadLibrary && <div aria-label={t('upload.dropLabel')} className={`upload-dropzone ${isDragging ? 'is-dragging' : ''}`} onClick={() => fileInput.current?.click()} onDragEnter={(event) => { event.preventDefault(); setIsDragging(true) }} onDragLeave={(event) => { event.preventDefault(); setIsDragging(false) }} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); setIsDragging(false); void handleUpload(event.dataTransfer.files) }} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); fileInput.current?.click() } }} role="button" tabIndex={0}>
             <input accept=".stl,.obj,.3mf" aria-label={t('upload.inputLabel')} className="visually-hidden" multiple onChange={(event) => void handleUpload(event.currentTarget.files ?? [])} ref={fileInput} type="file" />
             <strong>{uploading ? t('upload.uploading') : t('upload.title')}</strong><span>{t('upload.description')}</span>
@@ -221,7 +333,7 @@ export default function App() {
           {assetState === 'loading' && <p role="status">{t('content.loading')}</p>}
           {assetState === 'error' && <div className="content-state" role="alert"><p>{t('content.error')}</p><button className="ghost-button" onClick={loadWorkspace} type="button">{t('content.retry')}</button></div>}
           {assetState === 'ready' && visibleAssets.length === 0 && <div className="content-state"><h2>{t('content.emptyTitle')}</h2><p>{t('content.emptyDescription')}</p></div>}
-          {assetState === 'ready' && visibleAssets.length > 0 && <div aria-busy="false" className="asset-grid">{visibleAssets.map((asset) => <article className="asset-card" key={asset.id}><button aria-label={asset.filename} className="asset-card-button" onClick={() => void selectAsset(asset.id)} type="button"><div className="asset-preview"><AssetThumbnail source={assetViewerSource(asset)} /></div><div className="asset-body"><h2 className="asset-name">{asset.filename}</h2><p className="asset-meta">{asset.byteSize === undefined ? t('content.assetMeta', { format: asset.format.toUpperCase(), path: asset.relativePath }) : t('content.assetMetaWithSize', { format: asset.format.toUpperCase(), path: asset.relativePath, size: t('content.fileSize', { size: byteSizeInMegabytes(asset.byteSize) }) })}</p><div className="tags">{asset.tags.map((tag) => <span className="tag" key={tag}>{tag}</span>)}</div></div></button></article>)}</div>}
+          {assetState === 'ready' && visibleAssets.length > 0 && <div aria-busy="false" className="asset-grid">{visibleAssets.map((asset) => <article className="asset-card" key={asset.id}><button aria-label={asset.filename} className="asset-card-button" onClick={() => void selectAsset(asset.id)} type="button"><div className="asset-preview"><AssetThumbnail assetId={asset.id} /></div><div className="asset-body"><h2 className="asset-name">{asset.filename}</h2><p className="asset-meta">{asset.byteSize === undefined ? t('content.assetMeta', { format: asset.format.toUpperCase(), path: asset.relativePath }) : t('content.assetMetaWithSize', { format: asset.format.toUpperCase(), path: asset.relativePath, size: t('content.fileSize', { size: byteSizeInMegabytes(asset.byteSize) }) })}</p><div className="tags">{asset.tags.map((tag) => <span className="tag" key={tag}>{tag}</span>)}</div></div></button></article>)}</div>}
         </section>
       </main>
 
@@ -230,7 +342,7 @@ export default function App() {
         {selectionState === 'idle' && <div className="content-state"><h2 className="inspector-title">{t('inspector.emptyTitle')}</h2><p>{t('inspector.emptyDescription')}</p></div>}
         {selectionState === 'loading' && <p role="status">{t('inspector.loading')}</p>}
         {selectionState === 'error' && <p role="alert">{t('inspector.error')}</p>}
-        {selectedAsset && <><ModelViewer source={assetViewerSource(selectedAsset)} /><h2 className="inspector-title">{selectedAsset.filename}</h2><div className="tags">{selectedAsset.tags.map((tag) => <span className="tag" key={tag}>{tag}</span>)}</div><div className="stats"><div className="stat"><span className="stat-label">{t('inspector.format')}</span><span className="stat-value">{selectedAsset.format.toUpperCase()}</span></div><div className="stat"><span className="stat-label">{t('inspector.path')}</span><span className="stat-value">{selectedAsset.relativePath}</span></div>{selectedAsset.byteSize !== undefined && <div className="stat"><span className="stat-label">{t('inspector.size')}</span><span className="stat-value">{t('content.fileSize', { size: byteSizeInMegabytes(selectedAsset.byteSize) })}</span></div>}</div><a className="primary-button full-width" href={assetDownloadUrl(selectedAsset.id)}>{t('inspector.download')}</a></>}
+        {selectedAsset && <><ModelViewer source={assetViewerSource(selectedAsset)} /><h2 className="inspector-title">{selectedAsset.filename}</h2><div className="tags">{selectedAsset.tags.map((tag) => <span className="tag" key={tag}>{tag}</span>)}</div><div className="stats"><div className="stat"><span className="stat-label">{t('inspector.format')}</span><span className="stat-value">{selectedAsset.format.toUpperCase()}</span></div><div className="stat"><span className="stat-label">{t('inspector.path')}</span><span className="stat-value">{selectedAsset.relativePath}</span></div>{selectedAsset.byteSize !== undefined && <div className="stat"><span className="stat-label">{t('inspector.size')}</span><span className="stat-value">{t('content.fileSize', { size: byteSizeInMegabytes(selectedAsset.byteSize) })}</span></div>}</div>{threeMfCore(selectedAsset).length > 0 && <section className="asset-info"><h3>{t('metadata.title')}</h3>{threeMfCore(selectedAsset).map(([key, value]) => <p key={key}><strong>{key}:</strong> {value}</p>)}</section>}{threeMfDocuments(selectedAsset).length > 0 && <section className="asset-info"><h3>{t('metadata.instructions')}</h3>{threeMfDocuments(selectedAsset).map((document) => <details key={document.label}><summary>{document.label}</summary>{document.text ? <pre>{document.text}</pre> : <p>{t('metadata.binaryDocument')}</p>}</details>)}</section>}<section className="asset-management">{canUpload && <><label>{t('projects.assign')}<select aria-label={t('projects.assign')} defaultValue="" onChange={(event) => void assignSelectedProject(event.target.value)}><option disabled value="">{t('projects.assign')}</option>{projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label><div className="tag-management"><div className="management-heading"><h3>{t('tags.create')}</h3><button className="ghost-button" onClick={() => setTagFormOpen(true)} type="button">{t('tags.create')}</button></div>{tags.map((tag) => <label className="tag-option" key={tag.key}><input checked={selectedTagKeys.includes(tag.key)} onChange={(event) => setSelectedTagKeys((current) => event.target.checked ? [...new Set([...current, tag.key])] : current.filter((key) => key !== tag.key))} type="checkbox" />{tag.name}</label>)}{tags.length > 0 && <button className="ghost-button full-width" onClick={() => void saveSelectedTags()} type="button">{t('tags.save')}</button>}</div></>}</section>{tagFormOpen && <form aria-label={t('tags.create')} className="inline-form" onSubmit={submitTag}><label>{t('tags.key')}<input onChange={(event) => setTagKey(event.target.value)} pattern="[a-z0-9][a-z0-9-]*" required value={tagKey} /></label><label>{t('tags.name')}<input onChange={(event) => setTagName(event.target.value)} required value={tagName} /></label><div className="form-actions"><button className="ghost-button" onClick={() => setTagFormOpen(false)} type="button">{t('actions.cancel')}</button><button className="primary-button" type="submit">{t('actions.save')}</button></div></form>}<a className="primary-button full-width" href={assetDownloadUrl(selectedAsset.id)}>{t('inspector.download')}</a>{canUpload && !selectedAsset.archived && <button className="ghost-button full-width" onClick={() => void archiveSelectedAsset()} type="button">{t('actions.archive')}</button>}{canUpload && selectedAsset.archived && <button className="ghost-button full-width" onClick={() => void restoreSelectedAsset()} type="button">{t('actions.restore')}</button>}{role === 'admin' && <button className="danger-button full-width" onClick={() => void deleteSelectedAsset()} type="button">{t('actions.delete')}</button>}</>}
       </aside>
     </div>
   )

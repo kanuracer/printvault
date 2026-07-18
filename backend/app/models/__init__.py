@@ -58,6 +58,7 @@ class Asset(Base):
     format: Mapped[str] = mapped_column(String(64), nullable=False)
     byte_size: Mapped[int] = mapped_column(Integer, nullable=False)
     favorite: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
+    metadata_json: Mapped[dict[str, object]] = mapped_column(JSON, nullable=False, default=dict, server_default="{}")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -71,6 +72,12 @@ class Asset(Base):
         secondary="asset_tags", back_populates="assets", overlaps="asset,tag_links,tag"
     )
     audit_events: Mapped[list["AuditEvent"]] = relationship(back_populates="asset")
+    project_links: Mapped[list["ProjectAsset"]] = relationship(
+        back_populates="asset", cascade="all, delete-orphan", overlaps="projects,assets"
+    )
+    projects: Mapped[list["Project"]] = relationship(
+        secondary="project_assets", back_populates="assets", overlaps="asset,project_links,project"
+    )
 
     @validates("relative_path")
     def validate_relative_path(self, _: str, value: str) -> str:
@@ -111,6 +118,34 @@ class AssetTag(Base):
 
     asset: Mapped[Asset] = relationship(back_populates="tag_links", overlaps="assets,tags")
     tag: Mapped[Tag] = relationship(overlaps="assets,tags")
+
+
+class Project(Base):
+    __tablename__ = "projects"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(128), nullable=False, unique=True)
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+    asset_links: Mapped[list["ProjectAsset"]] = relationship(
+        back_populates="project", cascade="all, delete-orphan", overlaps="assets,projects"
+    )
+    assets: Mapped[list[Asset]] = relationship(
+        secondary="project_assets", back_populates="projects", overlaps="asset,project_links,project,asset_links"
+    )
+
+
+class ProjectAsset(Base):
+    __tablename__ = "project_assets"
+
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), primary_key=True)
+    asset_id: Mapped[int] = mapped_column(ForeignKey("assets.id", ondelete="CASCADE"), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    project: Mapped[Project] = relationship(back_populates="asset_links", overlaps="assets,projects")
+    asset: Mapped[Asset] = relationship(back_populates="project_links", overlaps="assets,projects")
 
 
 class AuditEvent(Base):
@@ -162,6 +197,8 @@ __all__ = [
     "AssetTag",
     "AuditEvent",
     "Library",
+    "Project",
+    "ProjectAsset",
     "SlicerProfile",
     "Tag",
     "UserPreference",

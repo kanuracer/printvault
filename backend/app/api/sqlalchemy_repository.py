@@ -11,16 +11,19 @@ import os
 from collections.abc import Callable
 from pathlib import Path
 from typing import BinaryIO
+from typing import Any
 
 from sqlalchemy import Select, select
 from sqlalchemy.orm import Session, joinedload, selectinload, sessionmaker
 
-from app.api import AssetQuery, AssetRecord, AuditRecord, DownloadHandle, LibraryRecord, TagRecord
-from app.models import Asset, AuditEvent, Library, Tag
+from app.api import AssetQuery, AssetRecord, AuditRecord, DownloadHandle, LibraryRecord, ProjectRecord, TagRecord
+from app.models import Asset, AuditEvent, Library, Project, Tag
 from app.services.archive import ArchiveMetadata, ArchiveService
 from app.services.filesystem import FileActionResult, PathCollisionError, SafeFilesystem, UnsafePathError
 from app.services.indexer import IndexedAsset
 from app.services.metadata import fingerprint_model, model_format
+from app.services.thumbnails import ThumbnailCache
+from app.services.three_mf_metadata import ThreeMfExtractionError, extract_three_mf_metadata
 
 _ARCHIVE_LIBRARY_KEY = "archive"
 _CONTENT_TYPES = {
@@ -28,6 +31,25 @@ _CONTENT_TYPES = {
     "obj": "model/obj",
     "stl": "model/stl",
 }
+
+
+def _three_mf_metadata(path: Path, format_name: str) -> dict[str, object]:
+    if format_name != "3mf":
+        return {}
+    try:
+        extraction = extract_three_mf_metadata(path)
+    except (OSError, ValueError, ThreeMfExtractionError):
+        return {}
+    return {
+        "three_mf": {
+            "core": dict(extraction.metadata),
+            "documents": [
+                {"label": item.display_label, "content_type": item.content_type, "byte_size": item.byte_size,
+                 **({"text": item.text_content} if item.text_content is not None else {})}
+                for item in extraction.documents
+            ],
+        }
+    }
 
 
 class SQLAlchemyAssetRepository:
@@ -38,10 +60,12 @@ class SQLAlchemyAssetRepository:
         session_factory: sessionmaker[Session],
         filesystem: SafeFilesystem,
         archive_service: ArchiveService,
+        thumbnails: ThumbnailCache,
     ) -> None:
         self._session_factory = session_factory
         self._filesystem = filesystem
         self._archive_service = archive_service
+        self._thumbnails = thumbnails
 
     def list_libraries(self) -> list[LibraryRecord]:
         with self._session_factory() as session:
@@ -77,6 +101,40 @@ class SQLAlchemyAssetRepository:
         with self._session_factory() as session:
             tags = session.scalars(select(Tag).order_by(Tag.key)).all()
             return [TagRecord(key=tag.key, name=tag.name) for tag in tags]
+
+    def create_tag(self, key: str, name: str, *, actor_subject: str) -> TagRecord:
+        with self._session_factory.begin() as session:
+            if session.scalar(select(Tag).where(Tag.key == key)) is not None:
+                raise ValueError("tag already exists")
+            tag = Tag(key=key, name=name.strip())
+            session.add(tag)
+            self._audit(session, actor_subject, "create_tag", None, {"tag_key": key})
+            return TagRecord(key=tag.key, name=tag.name)
+
+    def list_projects(self) -> list[ProjectRecord]:
+        with self._session_factory() as session:
+            projects = session.scalars(select(Project).options(selectinload(Project.assets)).order_by(Project.name)).all()
+            return [self._project_record(project) for project in projects]
+
+    def create_project(self, name: str, description: str, *, actor_subject: str) -> ProjectRecord:
+        with self._session_factory.begin() as session:
+            project = Project(name=name, description=description)
+            session.add(project)
+            session.flush()
+            self._audit(session, actor_subject, "create_project", None, {"project_id": str(project.id), "name": project.name})
+            return self._project_record(project)
+
+    def assign_project_asset(self, project_id: str, asset_id: str, *, actor_subject: str) -> ProjectRecord | None:
+        with self._session_factory.begin() as session:
+            project = self._get_project(session, project_id)
+            asset = self._get_asset(session, asset_id)
+            if project is None or asset is None:
+                return None
+            if asset not in project.assets:
+                project.assets.append(asset)
+                self._audit(session, actor_subject, "assign_project_asset", asset, {"project_id": str(project.id)})
+            session.flush()
+            return self._project_record(project)
 
     def set_tags(self, asset_id: str, tag_keys: set[str], *, actor_subject: str) -> AssetRecord | None:
         with self._session_factory.begin() as session:
@@ -178,12 +236,15 @@ class SQLAlchemyAssetRepository:
                 self._write_upload(stream, destination)
                 created = True
                 fingerprint = fingerprint_model(destination)
+                self._thumbnails.create(destination, fingerprint)
+                metadata = _three_mf_metadata(destination, fingerprint.format)
                 asset = Asset(
                     library=library,
                     relative_path=filename,
                     format=model_format(destination),
                     byte_size=fingerprint.byte_size,
                     sha256=fingerprint.sha256,
+                    metadata_json=metadata,
                 )
                 session.add(asset)
                 session.flush()
@@ -242,6 +303,20 @@ class SQLAlchemyAssetRepository:
                 stream=stream,
             )
 
+    def open_thumbnail(self, asset_id: str) -> DownloadHandle | None:
+        with self._session_factory() as session:
+            asset = self._get_asset(session, asset_id)
+            if asset is None or not asset.sha256:
+                return None
+            for suffix, content_type in ((".png", "image/png"), (".jpg", "image/jpeg"), (".jpeg", "image/jpeg"), (".webp", "image/webp"), (".svg", "image/svg+xml")):
+                candidate = self._thumbnails.root / asset.sha256[:2] / f"{asset.sha256}{suffix}"
+                try:
+                    if candidate.is_file() and not candidate.is_symlink():
+                        return DownloadHandle(filename=candidate.name, content_type=content_type, stream=candidate.open("rb"))
+                except OSError:
+                    continue
+            return None
+
     # ``IndexRepository`` compatibility lets a real scan hand its safe discovery
     # records directly to production persistence without accepting host paths.
     def get(self, library_key: str, relative_path: str) -> IndexedAsset | None:
@@ -286,12 +361,14 @@ class SQLAlchemyAssetRepository:
                     format=indexed.format,
                     byte_size=indexed.fingerprint.byte_size,
                     sha256=indexed.fingerprint.sha256,
+                    metadata_json=indexed.metadata,
                 )
                 session.add(asset)
             elif not create_only:
                 asset.format = indexed.format
                 asset.byte_size = indexed.fingerprint.byte_size
                 asset.sha256 = indexed.fingerprint.sha256
+                asset.metadata_json = indexed.metadata
 
     @staticmethod
     def _asset_record(asset: Asset) -> AssetRecord:
@@ -304,7 +381,25 @@ class SQLAlchemyAssetRepository:
             tags={tag.key for tag in asset.tags},
             archived=asset.library.key == _ARCHIVE_LIBRARY_KEY,
             byte_size=asset.byte_size,
+            metadata=dict(asset.metadata_json or {}),
         )
+
+    @staticmethod
+    def _project_record(project: Project) -> ProjectRecord:
+        return ProjectRecord(
+            id=str(project.id),
+            name=project.name,
+            description=project.description,
+            asset_ids=tuple(str(asset.id) for asset in sorted(project.assets, key=lambda asset: asset.id)),
+        )
+
+    @staticmethod
+    def _get_project(session: Session, project_id: str) -> Project | None:
+        try:
+            primary_key = int(project_id)
+        except (TypeError, ValueError):
+            return None
+        return session.scalar(select(Project).options(selectinload(Project.assets)).where(Project.id == primary_key))
 
     @staticmethod
     def _get_asset(session: Session, asset_id: str) -> Asset | None:
@@ -321,7 +416,7 @@ class SQLAlchemyAssetRepository:
         return session.scalar(select(Library).where(Library.key == key))
 
     @staticmethod
-    def _audit(session: Session, actor_subject: str, action: str, asset: Asset, metadata: dict[str, object]) -> None:
+    def _audit(session: Session, actor_subject: str, action: str, asset: Asset | None, metadata: dict[str, Any]) -> None:
         session.add(AuditEvent(actor_subject=actor_subject, action=action, asset=asset, metadata_json=metadata))
 
     @staticmethod

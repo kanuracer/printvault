@@ -104,6 +104,23 @@ def test_startup_indexes_supported_files_from_configured_library_roots(tmp_path:
     assert [(item["relative_path"], item["format"]) for item in response.json()["items"]] == [("parts/bracket.stl", "stl")]
 
 
+def test_indexed_asset_exposes_a_private_persisted_sha_thumbnail(tmp_path: Path) -> None:
+    settings = production_settings(tmp_path)
+    model = settings.library_models_root / "parts" / "bracket.stl"
+    model.parent.mkdir()
+    model.write_text("solid bracket\nendsolid bracket\n", encoding="ascii")
+
+    with TestClient(create_app(settings), base_url="https://printvault.example.test") as client:
+        client.cookies.set("printvault_session", signed_session(settings, subject="viewer-1", role="viewer"))
+        asset = client.get("/api/assets").json()["items"][0]
+        thumbnail = client.get(f"/api/assets/{asset['id']}/thumbnail")
+
+    assert thumbnail.status_code == 200
+    assert thumbnail.headers["content-type"].startswith("image/svg+xml")
+    assert thumbnail.headers["cache-control"] == "private, no-cache"
+    assert list(settings.thumbnails_root.glob("*/*.svg"))
+
+
 def test_production_api_resolves_signed_bff_session_and_streams_only_persisted_safe_asset(tmp_path: Path) -> None:
     settings = production_settings(tmp_path)
     with TestClient(create_app(settings), base_url="https://printvault.example.test") as client:
@@ -161,6 +178,27 @@ def test_production_uploads_multiple_supported_files_to_a_configured_library_and
     assert (settings.library_models_root / "case.obj").read_bytes() == b"o case\nv 0 0 0\n"
     assert {item["relative_path"] for item in listed.json()["items"]} == {"bracket.stl", "case.obj"}
     assert [event.action for event in events] == ["upload", "upload"]
+
+
+def test_editor_creates_a_logical_project_and_assigns_an_existing_model(tmp_path: Path) -> None:
+    settings = production_settings(tmp_path)
+    with TestClient(create_app(settings), base_url="https://printvault.example.test") as client:
+        asset = add_asset(settings, library_key="models", relative_path="parts/bracket.stl")
+        client.cookies.set("printvault_session", signed_session(settings, subject="editor-1", role="editor"))
+        created = client.post("/api/projects", json={"name": "Werkbank", "description": "Ersatzteile"})
+        project_id = created.json()["id"]
+        assigned = client.put(f"/api/projects/{project_id}/assets/{asset.id}")
+        projects = client.get("/api/projects")
+
+    assert created.status_code == 201
+    assert created.json()["name"] == "Werkbank"
+    assert assigned.status_code == 200
+    assert projects.json()["items"] == [{
+        "id": project_id,
+        "name": "Werkbank",
+        "description": "Ersatzteile",
+        "asset_ids": [str(asset.id)],
+    }]
 
 
 def test_upload_rejects_viewers_before_writing_files(tmp_path: Path) -> None:

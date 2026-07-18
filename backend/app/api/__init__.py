@@ -58,12 +58,21 @@ class AssetRecord:
     byte_size: int | None = None
     content: bytes = b""
     content_type: str = "application/octet-stream"
+    metadata: dict[str, object] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
 class TagRecord:
     key: str
     name: str
+
+
+@dataclass(frozen=True)
+class ProjectRecord:
+    id: str
+    name: str
+    description: str
+    asset_ids: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -102,6 +111,14 @@ class AssetRepository(Protocol):
 
     def list_tags(self) -> list[TagRecord]: ...
 
+    def create_tag(self, key: str, name: str, *, actor_subject: str) -> TagRecord: ...
+
+    def list_projects(self) -> list[ProjectRecord]: ...
+
+    def create_project(self, name: str, description: str, *, actor_subject: str) -> ProjectRecord: ...
+
+    def assign_project_asset(self, project_id: str, asset_id: str, *, actor_subject: str) -> ProjectRecord | None: ...
+
     def set_tags(self, asset_id: str, tag_keys: set[str], *, actor_subject: str) -> AssetRecord | None: ...
 
     def set_favorite(self, asset_id: str, favorite: bool, *, actor_subject: str) -> AssetRecord | None: ...
@@ -122,6 +139,8 @@ class AssetRepository(Protocol):
 
     def open_download(self, asset_id: str) -> DownloadHandle | None: ...
 
+    def open_thumbnail(self, asset_id: str) -> DownloadHandle | None: ...
+
 
 class InMemoryAssetRepository:
     """Simple injected test double; it deliberately has no host-path support."""
@@ -136,6 +155,7 @@ class InMemoryAssetRepository:
         self._libraries = {library.key: library for library in libraries}
         self._assets = {asset.id: asset for asset in assets}
         self._tags = {tag.key: tag for tag in tags}
+        self._projects: dict[str, ProjectRecord] = {}
         self._audit: list[AuditRecord] = []
 
     @classmethod
@@ -189,6 +209,27 @@ class InMemoryAssetRepository:
 
     def list_tags(self) -> list[TagRecord]:
         return sorted(self._tags.values(), key=lambda tag: tag.key)
+
+    def list_projects(self) -> list[ProjectRecord]:
+        return sorted(self._projects.values(), key=lambda project: project.name.casefold())
+
+    def create_project(self, name: str, description: str, *, actor_subject: str) -> ProjectRecord:
+        normalized_name = name.strip()
+        if not normalized_name or any(project.name.casefold() == normalized_name.casefold() for project in self._projects.values()):
+            raise ValueError("invalid project")
+        project = ProjectRecord(id=f"project-{len(self._projects) + 1}", name=normalized_name, description=description.strip())
+        self._projects[project.id] = project
+        self._record(actor_subject, "create_project", None)
+        return project
+
+    def assign_project_asset(self, project_id: str, asset_id: str, *, actor_subject: str) -> ProjectRecord | None:
+        project = self._projects.get(project_id)
+        if project is None or asset_id not in self._assets:
+            return None
+        updated = ProjectRecord(id=project.id, name=project.name, description=project.description, asset_ids=tuple(sorted({*project.asset_ids, asset_id})))
+        self._projects[project_id] = updated
+        self._record(actor_subject, "assign_project_asset", asset_id)
+        return updated
 
     def set_tags(self, asset_id: str, tag_keys: set[str], *, actor_subject: str) -> AssetRecord | None:
         asset = self._assets.get(asset_id)
@@ -271,7 +312,10 @@ class InMemoryAssetRepository:
             stream=BytesIO(asset.content),
         )
 
-    def _record(self, actor_subject: str, action: str, asset_id: str) -> None:
+    def open_thumbnail(self, asset_id: str) -> DownloadHandle | None:
+        return None
+
+    def _record(self, actor_subject: str, action: str, asset_id: str | None) -> None:
         self._audit.append(AuditRecord(actor_subject=actor_subject, action=action, asset_id=asset_id))
 
 
@@ -304,10 +348,32 @@ def _safe_relative_path(value: str) -> str:
     return "/".join(normalized)
 
 
+class TagCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    key: str = Field(min_length=1, max_length=64, pattern=r"^[a-z0-9][a-z0-9-]*$")
+    name: str = Field(min_length=1, max_length=128)
+
+
 class TagAssignment(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     tag_keys: list[str] = Field(min_length=1, max_length=64)
+
+
+class ProjectCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=128)
+    description: str = Field(default="", max_length=2000)
+
+    @field_validator("name")
+    @classmethod
+    def normalized_name(cls, value: str) -> str:
+        name = value.strip()
+        if not name:
+            raise ValueError("project name must not be blank")
+        return name
 
 
 class FavoriteUpdate(BaseModel):
@@ -345,8 +411,13 @@ def _asset_payload(asset: AssetRecord) -> dict[str, object]:
         "favorite": asset.favorite,
         "tags": sorted(asset.tags),
         "archived": asset.archived,
+        **({"metadata": asset.metadata} if asset.metadata else {}),
         **({"byte_size": asset.byte_size} if asset.byte_size is not None else {}),
     }
+
+
+def _project_payload(project: ProjectRecord) -> dict[str, object]:
+    return {"id": project.id, "name": project.name, "description": project.description, "asset_ids": list(project.asset_ids)}
 
 
 def _not_found() -> None:
@@ -388,6 +459,25 @@ def register_api(app: FastAPI, dependencies: ApiDependencies) -> APIRouter:
             return actor
 
         return dependency
+
+    @router.get("/projects")
+    def projects(_: ApiActor = Depends(require("browse"))) -> dict[str, list[dict[str, object]]]:
+        return {"items": [_project_payload(project) for project in dependencies.repository.list_projects()]}
+
+    @router.post("/projects", status_code=status.HTTP_201_CREATED)
+    def create_project(payload: ProjectCreate, actor: ApiActor = Depends(require("project"))) -> dict[str, object]:
+        try:
+            project = dependencies.repository.create_project(payload.name, payload.description.strip(), actor_subject=actor.subject)
+        except ValueError as error:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="invalid project") from error
+        return _project_payload(project)
+
+    @router.put("/projects/{project_id}/assets/{asset_id}")
+    def assign_project_asset(project_id: str, asset_id: str, actor: ApiActor = Depends(require("project"))) -> dict[str, object]:
+        project = dependencies.repository.assign_project_asset(project_id, asset_id, actor_subject=actor.subject)
+        if project is None:
+            _not_found()
+        return _project_payload(project)
 
     @router.get("/libraries")
     def libraries(_: ApiActor = Depends(require("browse"))) -> dict[str, list[dict[str, str]]]:
@@ -454,9 +544,24 @@ def register_api(app: FastAPI, dependencies: ApiDependencies) -> APIRouter:
             headers={"Content-Disposition": f"attachment; filename=\"{quote(handle.filename)}\""},
         )
 
+    @router.get("/assets/{asset_id}/thumbnail")
+    def thumbnail(asset_id: str, _: ApiActor = Depends(require("view"))) -> StreamingResponse:
+        handle = dependencies.repository.open_thumbnail(asset_id)
+        if handle is None:
+            _not_found()
+        return StreamingResponse(handle.stream, media_type=handle.content_type, headers={"Cache-Control": "private, no-cache"})
+
     @router.get("/tags")
     def tags(_: ApiActor = Depends(require("browse"))) -> dict[str, list[dict[str, str]]]:
         return {"items": [{"key": tag.key, "name": tag.name} for tag in dependencies.repository.list_tags()]}
+
+    @router.post("/tags", status_code=status.HTTP_201_CREATED)
+    def create_tag(body: TagCreate, actor: ApiActor = Depends(require("tag"))) -> dict[str, str]:
+        try:
+            tag = dependencies.repository.create_tag(body.key, body.name.strip(), actor_subject=actor.subject)
+        except ValueError as error:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="invalid tag") from error
+        return {"key": tag.key, "name": tag.name}
 
     @router.put("/assets/{asset_id}/tags")
     def assign_tags(asset_id: str, body: TagAssignment, actor: ApiActor = Depends(require("tag"))) -> dict[str, object]:

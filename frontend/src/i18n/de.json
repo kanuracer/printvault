@@ -75,5 +75,32 @@
     "wireframe": "Drahtgitter",
     "grid": "Raster",
     "axes": "Achsen"
+  },
+  "metadata": {
+    "title": "3MF-Informationen",
+    "instructions": "Anleitungen",
+    "binaryDocument": "Dieses Dokument ist enthalten, kann aber nicht als Text angezeigt werden."
+  },
+  "projects": {
+    "create": "Projekt erstellen",
+    "name": "Projektname",
+    "description": "Beschreibung",
+    "assign": "Projekt zuweisen"
+  },
+  "tags": {
+    "create": "Tag erstellen",
+    "key": "Tag-Schlüssel",
+    "name": "Tag-Name",
+    "save": "Tags speichern"
+  },
+  "actions": {
+    "save": "Speichern",
+    "cancel": "Abbrechen",
+    "archive": "Archivieren",
+    "delete": "Endgültig löschen",
+    "archiveConfirm": "„{{name}}“ ins Archiv verschieben?",
+    "restore": "Wiederherstellen",
+    "restoreConfirm": "„{{name}}“ an den ursprünglichen Speicherort wiederherstellen?",
+    "deleteConfirm": "„{{name}}“ endgültig löschen? Dieser Vorgang kann nicht rückgängig gemacht werden."
   }
 }

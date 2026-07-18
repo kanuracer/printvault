@@ -9,7 +9,7 @@ vi.mock('./features/viewer/ModelViewer', () => ({
 }))
 
 vi.mock('./features/viewer/AssetThumbnail', () => ({
-  AssetThumbnail: ({ source }: { source: unknown }) => <output data-testid="asset-thumbnail">{JSON.stringify(source)}</output>,
+  AssetThumbnail: ({ assetId }: { assetId: string }) => <output data-testid="asset-thumbnail">{assetId}</output>,
 }))
 
 const jsonResponse = (body: unknown, status = 200) => new Response(JSON.stringify(body), {
@@ -22,6 +22,8 @@ const authenticatedResponses = (assets: unknown, detail = assets, role: 'viewer'
   if (url === '/api/auth/me') return Promise.resolve(jsonResponse({ subject: 'user-1', role }))
   if (url === '/api/libraries') return Promise.resolve(jsonResponse({ items: [{ key: 'models', name: 'Modelle' }] }))
   if (url === '/api/assets') return Promise.resolve(jsonResponse({ items: assets, total: Array.isArray(assets) ? assets.length : 0 }))
+  if (url === '/api/projects') return Promise.resolve(jsonResponse({ items: [] }))
+  if (url === '/api/tags') return Promise.resolve(jsonResponse({ items: [] }))
   if (url === '/api/assets/asset%20id%2F1') return Promise.resolve(jsonResponse(detail))
   return Promise.reject(new Error(`Unexpected request: ${url}`))
 }
@@ -67,6 +69,8 @@ describe('PrintVault authenticated asset library', () => {
       if (url === '/api/auth/me') return Promise.resolve(jsonResponse({ subject: 'editor-1', role: 'editor' }))
       if (url === '/api/libraries') return Promise.resolve(jsonResponse({ items: [{ key: 'models', name: 'Modelle' }] }))
       if (url === '/api/assets') return Promise.resolve(jsonResponse({ items: [], total: 0 }))
+      if (url === '/api/projects') return Promise.resolve(jsonResponse({ items: [] }))
+      if (url === '/api/tags') return Promise.resolve(jsonResponse({ items: [] }))
       if (url === '/api/uploads') {
         const body = init?.body
         expect(body).toBeInstanceOf(FormData)
@@ -92,6 +96,8 @@ describe('PrintVault authenticated asset library', () => {
       if (url === '/api/auth/me') return Promise.resolve(jsonResponse({ subject: 'editor-1', role: 'editor' }))
       if (url === '/api/libraries') return Promise.resolve(jsonResponse({ items: [{ key: 'models', name: 'Modelle' }] }))
       if (url === '/api/assets') return Promise.resolve(jsonResponse({ items: [], total: 0 }))
+      if (url === '/api/projects') return Promise.resolve(jsonResponse({ items: [] }))
+      if (url === '/api/tags') return Promise.resolve(jsonResponse({ items: [] }))
       if (url === '/api/uploads') return Promise.resolve(jsonResponse({ items: [], rejected: [] }))
       return Promise.reject(new Error(`Unexpected request: ${url}`))
     })
@@ -125,11 +131,7 @@ describe('PrintVault authenticated asset library', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/libraries', expect.objectContaining({ credentials: 'same-origin' }))
     expect(fetchMock).toHaveBeenCalledWith('/api/assets', expect.objectContaining({ credentials: 'same-origin' }))
     expect(screen.getByText('functional')).toBeVisible()
-    expect(screen.getByTestId('asset-thumbnail')).toHaveTextContent(JSON.stringify({
-      kind: 'authenticated-api',
-      url: '/api/assets/asset%20id%2F1/download',
-      format: 'stl',
-    }))
+    expect(screen.getByTestId('asset-thumbnail')).toHaveTextContent('asset id/1')
     await user.click(screen.getByRole('button', { name: /Widget\.stl/i }))
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
@@ -182,5 +184,54 @@ describe('PrintVault authenticated asset library', () => {
 
     expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe('light')
     expect(document.documentElement.dataset.theme).toBe('light')
+  })
+
+  it('lets an editor create projects and tags, assign both, then restore an archived asset', async () => {
+    const asset = { id: 'asset-1', library_key: 'models', relative_path: 'Widget.stl', filename: 'Widget.stl', format: 'stl', tags: [], favorite: false, archived: false }
+    const archived = { ...asset, library_key: 'archive', archived: true }
+    const restored = { ...asset }
+    let archiveMode = false
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url === '/api/auth/me') return Promise.resolve(jsonResponse({ subject: 'editor-1', role: 'editor' }))
+      if (url === '/api/libraries') return Promise.resolve(jsonResponse({ items: [{ key: 'models', name: 'Modelle' }, { key: 'archive', name: 'Archiv' }] }))
+      if (url === '/api/assets') return Promise.resolve(jsonResponse({ items: [asset] }))
+      if (url === '/api/projects' && init?.method === 'POST') return Promise.resolve(jsonResponse({ id: 'project-1', name: 'Drucker', description: '', asset_ids: [] }, 201))
+      if (url === '/api/tags' && init?.method === 'POST') return Promise.resolve(jsonResponse({ key: 'functional', name: 'Funktional' }, 201))
+      if (url === '/api/projects') return Promise.resolve(jsonResponse({ items: [] }))
+      if (url === '/api/tags') return Promise.resolve(jsonResponse({ items: [] }))
+      if (url === '/api/assets/asset-1') return Promise.resolve(jsonResponse(archiveMode ? archived : asset))
+      if (url === '/api/projects/project-1/assets/asset-1' && init?.method === 'PUT') return Promise.resolve(jsonResponse({ id: 'project-1', name: 'Drucker', description: '', asset_ids: ['asset-1'] }))
+      if (url === '/api/assets/asset-1/tags' && init?.method === 'PUT') return Promise.resolve(jsonResponse({ ...asset, tags: ['functional'] }))
+      if (url === '/api/assets/asset-1/archive') {
+        archiveMode = true
+        return Promise.resolve(jsonResponse(archived))
+      }
+      if (url === '/api/assets?library=archive') return Promise.resolve(jsonResponse({ items: [archived] }))
+      if (url === '/api/assets/asset-1/restore') return Promise.resolve(jsonResponse(restored))
+      return Promise.reject(new Error(`Unexpected request: ${url}`))
+    })
+    const user = userEvent.setup()
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+
+    render(<App />)
+    await user.click(await screen.findByRole('button', { name: 'Projekt erstellen' }))
+    await user.type(screen.getByLabelText('Projektname'), 'Drucker')
+    await user.click(screen.getByRole('button', { name: 'Speichern' }))
+    await user.click(screen.getByRole('button', { name: /Widget\.stl/i }))
+    await user.click(await screen.findByRole('button', { name: 'Tag erstellen' }))
+    await user.type(screen.getByLabelText('Tag-Schlüssel'), 'functional')
+    await user.type(screen.getByLabelText('Tag-Name'), 'Funktional')
+    await user.click(screen.getByRole('button', { name: 'Speichern' }))
+    await user.click(screen.getByLabelText('Funktional'))
+    await user.click(screen.getByRole('button', { name: 'Tags speichern' }))
+    await user.selectOptions(screen.getByLabelText('Projekt zuweisen'), 'project-1')
+    await user.click(screen.getByRole('button', { name: 'Archivieren' }))
+    await user.click(screen.getByRole('button', { name: 'Archiv' }))
+    await user.click(await screen.findByRole('button', { name: /Widget\.stl/i }))
+    await user.click(screen.getByRole('button', { name: 'Wiederherstellen' }))
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/assets/asset-1/restore', expect.objectContaining({ method: 'POST' })))
   })
 })

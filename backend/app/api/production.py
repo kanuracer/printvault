@@ -89,6 +89,7 @@ def initialize_production_database(settings: Settings) -> None:
             session_factory,
             SafeFilesystem(registry),
             ArchiveService(registry, registry.library_for_key("archive")),
+            ThumbnailCache(settings.thumbnails_root),
         )
         indexer = LibraryIndexer(SafeFilesystem(registry), repository, ThumbnailCache(settings.thumbnails_root))
         with session_factory() as session:
@@ -110,7 +111,12 @@ def build_production_dependencies(settings: Settings) -> ApiDependencies:
     for key in _LIBRARY_ROOTS:
         registry.register_library(RegisteredLibrary(key=key, root_name=key))
     archive_service = ArchiveService(registry, RegisteredLibrary(key="archive", root_name="archive"))
-    repository = SQLAlchemyAssetRepository(session_factory, SafeFilesystem(registry), archive_service)
+    repository = SQLAlchemyAssetRepository(
+        session_factory,
+        SafeFilesystem(registry),
+        archive_service,
+        ThumbnailCache(settings.thumbnails_root),
+    )
     return ApiDependencies(repository=repository, session_resolver=signed_session_resolver(settings))
 
 

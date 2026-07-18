@@ -75,5 +75,32 @@
     "wireframe": "Wireframe",
     "grid": "Grid",
     "axes": "Axes"
+  },
+  "metadata": {
+    "title": "3MF information",
+    "instructions": "Instructions",
+    "binaryDocument": "This document is included but cannot be shown as text."
+  },
+  "projects": {
+    "create": "Create project",
+    "name": "Project name",
+    "description": "Description",
+    "assign": "Assign project"
+  },
+  "tags": {
+    "create": "Create tag",
+    "key": "Tag key",
+    "name": "Tag name",
+    "save": "Save tags"
+  },
+  "actions": {
+    "save": "Save",
+    "cancel": "Cancel",
+    "archive": "Archive",
+    "delete": "Delete permanently",
+    "archiveConfirm": "Move “{{name}}” to archive?",
+    "restore": "Restore",
+    "restoreConfirm": "Restore “{{name}}” to its original location?",
+    "deleteConfirm": "Delete “{{name}}” permanently? This cannot be undone."
   }
 }
