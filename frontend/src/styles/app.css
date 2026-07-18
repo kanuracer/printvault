@@ -137,6 +137,13 @@ h1 { font-size: clamp(25px, 3vw, 32px); font-weight: 590; letter-spacing: -.7px;
 .project-assignment .project-pill { width: 100%; }
 .project-assignment select { max-width: none; }
 .project-assignment select option { background: var(--surface); color: var(--text-primary); }
+.folder-picker { min-width: 0; position: relative; }
+.folder-picker-trigger { align-items: center; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; color: var(--text-primary); display: flex; justify-content: space-between; min-height: 34px; padding: 7px 9px; text-align: left; width: 100%; }
+.folder-picker-trigger:hover, .folder-picker-trigger[aria-expanded="true"] { border-color: var(--accent); background: var(--surface-hover); }
+.folder-picker-trigger:disabled { cursor: not-allowed; opacity: .5; }
+.folder-picker-menu { background: var(--panel); border: 1px solid var(--border-strong); border-radius: 7px; box-shadow: 0 12px 28px rgb(0 0 0 / .42); display: grid; left: 0; overflow: hidden; position: absolute; right: 0; top: calc(100% + 4px); z-index: 10; }
+.folder-picker-menu button { background: transparent; border: 0; color: var(--text-secondary); min-height: 34px; padding: 7px 10px; text-align: left; }
+.folder-picker-menu button:hover, .folder-picker-menu button[aria-selected="true"] { background: color-mix(in srgb, var(--accent) 18%, var(--surface)); color: var(--text-primary); }
 .project-pill.is-assigned { background: color-mix(in srgb, var(--accent) 22%, var(--surface)); border-color: var(--accent); color: var(--text-primary); }
 .project-assignment select:disabled { cursor: not-allowed; opacity: .5; }
 .operation-message { color: var(--text-secondary); font-size: 12px; margin: 0; }
