@@ -231,6 +231,7 @@ networks:
         self.assertIn("PRINTVAULT_DATABASE_URL_FILE", entrypoint)
         self.assertIn("run_migrations", entrypoint)
         self.assertLess(entrypoint.index("run_migrations"), entrypoint.index("uvicorn"))
+        self.assertIn("--no-access-log", entrypoint)
 
     def test_docker_build_context_excludes_runtime_secrets_and_dependency_trees(self) -> None:
         dockerignore = (REPOSITORY_ROOT / ".dockerignore").read_text(encoding="utf-8")

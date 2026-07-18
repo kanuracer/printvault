@@ -16,7 +16,7 @@ if [ -n "${PRINTVAULT_DATABASE_URL_FILE:-}" ]; then
 fi
 
 if [ -f /app/backend/app/main.py ]; then
-    python3 -m uvicorn "${PRINTVAULT_APP_MODULE:-app.main:app}" --host 127.0.0.1 --port 8000 &
+    python3 -m uvicorn "${PRINTVAULT_APP_MODULE:-app.main:app}" --host 127.0.0.1 --port 8000 --no-access-log &
 else
     python3 /app/docker/placeholder_server.py &
 fi
