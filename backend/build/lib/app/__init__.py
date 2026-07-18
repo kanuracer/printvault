@@ -1,1 +1,0 @@
-"""PrintVault backend package."""
