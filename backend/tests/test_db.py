@@ -16,7 +16,6 @@ def settings_for_sqlite(tmp_path: Path, database_url: str = "sqlite:///:memory:"
         environment="development",
         database_url=database_url,
         library_models_root=tmp_path / "models",
-        library_projects_root=tmp_path / "projects",
         library_archive_root=tmp_path / "archive",
         data_root=tmp_path / "data",
         thumbnails_root=tmp_path / "thumbnails",

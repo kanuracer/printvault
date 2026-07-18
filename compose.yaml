@@ -25,13 +25,12 @@ services:
       PRINTVAULT_OIDC_GROUPS_CLAIM: "groups"
       PRINTVAULT_SESSION_SECRET_FILE: "/run/secrets/printvault_session_secret"
       PRINTVAULT_LIBRARY_MODELS_ROOT: "/libraries/modelle"
-      PRINTVAULT_LIBRARY_PROJECTS_ROOT: "/libraries/projekte"
       PRINTVAULT_LIBRARY_ARCHIVE_ROOT: "/libraries/archiv"
       PRINTVAULT_DATA_ROOT: "/var/lib/printvault"
       PRINTVAULT_THUMBNAILS_ROOT: "/var/lib/printvault/thumbnails"
     volumes:
       - /mnt/user/appdata/printvault/modelle:/libraries/modelle:rw
-      - /mnt/user/appdata/printvault/projekte:/libraries/projekte:rw
+
       - /mnt/user/appdata/printvault/archiv:/libraries/archiv:rw
       - /mnt/user/appdata/printvault/data:/var/lib/printvault:rw
       - /mnt/user/appdata/printvault/thumbnails:/var/lib/printvault/thumbnails:rw

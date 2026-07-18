@@ -185,7 +185,8 @@ export default function App() {
         try {
           const [nextLibraries, nextAssets, nextProjects, nextTags] = await Promise.all([getLibraries(), getAssets(), getProjects(), getTags()])
           if (cancelled) return
-          setLibraries(nextLibraries)
+          setLibraries(nextLibraries.filter((library) => library.key !== 'projects'))
+          if (activeLibrary === 'projects') setActiveLibrary(null)
           setAssets(nextAssets)
           setProjects(nextProjects)
           setTags(nextTags)

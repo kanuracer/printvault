@@ -24,7 +24,6 @@ def settings_for_auth(tmp_path: Path) -> Settings:
         environment="test",
         database_url="sqlite:///:memory:",
         library_models_root=tmp_path / "models",
-        library_projects_root=tmp_path / "projects",
         library_archive_root=tmp_path / "archive",
         data_root=tmp_path / "data",
         thumbnails_root=tmp_path / "thumbnails",

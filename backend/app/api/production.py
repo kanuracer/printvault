@@ -24,14 +24,13 @@ from app.services.thumbnails import ThumbnailCache
 
 _SESSION_COOKIE = "printvault_session"
 _SESSION_MAX_AGE_SECONDS = 60 * 60 * 8
-_LIBRARY_ROOTS = ("models", "projects", "archive")
+_LIBRARY_ROOTS = ("models", "archive")
 
 
 def configured_library_roots(settings: Settings) -> dict[str, Path]:
     """Return server-configured roots keyed by persisted ``Library.root_name``."""
     return {
         "models": settings.library_models_root,
-        "projects": settings.library_projects_root,
         "archive": settings.library_archive_root,
     }
 

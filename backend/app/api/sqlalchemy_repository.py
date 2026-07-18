@@ -69,7 +69,7 @@ class SQLAlchemyAssetRepository:
 
     def list_libraries(self) -> list[LibraryRecord]:
         with self._session_factory() as session:
-            libraries = session.scalars(select(Library).order_by(Library.key)).all()
+            libraries = session.scalars(select(Library).where(Library.key.in_(("models", "archive"))).order_by(Library.key)).all()
             return [LibraryRecord(key=library.key, name=library.key.replace("_", " ").title()) for library in libraries]
 
     def list_assets(self, query: AssetQuery) -> list[AssetRecord]:

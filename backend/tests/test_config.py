@@ -13,7 +13,6 @@ def config_values(tmp_path: Path, **overrides: object) -> dict[str, object]:
         "environment": "development",
         "database_url": "sqlite:///:memory:",
         "library_models_root": tmp_path / "models",
-        "library_projects_root": tmp_path / "projects",
         "library_archive_root": tmp_path / "archive",
         "data_root": tmp_path / "data",
         "thumbnails_root": tmp_path / "thumbnails",

@@ -26,7 +26,6 @@ class Settings(BaseSettings):
     database_url_file: Path | None = None
 
     library_models_root: Path
-    library_projects_root: Path
     library_archive_root: Path
     data_root: Path
     thumbnails_root: Path
@@ -43,7 +42,6 @@ class Settings(BaseSettings):
 
     @field_validator(
         "library_models_root",
-        "library_projects_root",
         "library_archive_root",
         "data_root",
         "thumbnails_root",
@@ -134,7 +132,6 @@ class Settings(BaseSettings):
 
         roots = (
             self.library_models_root,
-            self.library_projects_root,
             self.library_archive_root,
             self.data_root,
             self.thumbnails_root,

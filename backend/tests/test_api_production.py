@@ -15,7 +15,6 @@ from app.models import Asset, AuditEvent, Library
 def production_settings(tmp_path: Path) -> Settings:
     roots = {
         "models": tmp_path / "models",
-        "projects": tmp_path / "projects",
         "archive": tmp_path / "archive",
         "data": tmp_path / "data",
         "thumbnails": tmp_path / "thumbnails",
@@ -27,7 +26,6 @@ def production_settings(tmp_path: Path) -> Settings:
         environment="test",
         database_url=f"sqlite:///{tmp_path / 'printvault.sqlite3'}",
         library_models_root=roots["models"],
-        library_projects_root=roots["projects"],
         library_archive_root=roots["archive"],
         data_root=roots["data"],
         thumbnails_root=roots["thumbnails"],
@@ -50,7 +48,6 @@ def add_asset(settings: Settings, *, library_key: str, relative_path: str, conte
         assert library is not None
         path = {
             "models": settings.library_models_root,
-            "projects": settings.library_projects_root,
             "archive": settings.library_archive_root,
         }[library_key] / relative_path
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -81,8 +78,20 @@ def test_production_startup_migrates_and_seeds_exact_registered_libraries(tmp_pa
     assert [(library.key, library.root_name) for library in libraries] == [
         ("archive", "archive"),
         ("models", "models"),
-        ("projects", "projects"),
     ]
+
+
+def test_production_hides_legacy_filesystem_projects_library_from_the_api(tmp_path: Path) -> None:
+    settings = production_settings(tmp_path)
+
+    with TestClient(create_app(settings), base_url="https://printvault.example.test") as client:
+        with session_factory(settings).begin() as session:
+            session.add(Library(key="projects", root_name="projects"))
+        client.cookies.set("printvault_session", signed_session(settings, subject="viewer-1", role="viewer"))
+        response = client.get("/api/libraries")
+
+    assert response.status_code == 200
+    assert [item["key"] for item in response.json()["items"]] == ["archive", "models"]
 
 
 def test_production_create_app_registers_real_api_routes_before_the_server_starts(tmp_path: Path) -> None:

@@ -29,7 +29,7 @@ def test_libraries_and_filtered_paginated_assets_expose_only_safe_metadata(authe
         )
 
     assert libraries.status_code == 200
-    assert libraries.json() == {"items": [{"key": "models", "name": "Models"}, {"key": "projects", "name": "Projects"}]}
+    assert libraries.json() == {"items": [{"key": "archive", "name": "Archive"}, {"key": "models", "name": "Models"}]}
     assert response.status_code == 200
     assert response.json() == {
         "items": [
@@ -102,7 +102,7 @@ def test_editor_can_assign_tags_favorite_and_archive_restore_move_without_host_p
         restore = client.post("/api/assets/asset-bracket/restore")
         move = client.post(
             "/api/assets/asset-bracket/move",
-            json={"destination_library_key": "projects", "destination_relative_path": "saved/Bracket.stl"},
+            json={"destination_library_key": "archive", "destination_relative_path": "saved/Bracket.stl"},
         )
 
     assert assigned.status_code == 200
@@ -114,5 +114,5 @@ def test_editor_can_assign_tags_favorite_and_archive_restore_move_without_host_p
     assert restore.status_code == 200
     assert restore.json()["archived"] is False
     assert move.status_code == 200
-    assert move.json()["library_key"] == "projects"
+    assert move.json()["library_key"] == "archive"
     assert move.json()["relative_path"] == "saved/Bracket.stl"

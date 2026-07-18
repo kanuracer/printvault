@@ -181,7 +181,7 @@ class InMemoryAssetRepository:
     @classmethod
     def demo(cls) -> InMemoryAssetRepository:
         return cls(
-            libraries=(LibraryRecord("models", "Models"), LibraryRecord("projects", "Projects")),
+            libraries=(LibraryRecord("models", "Models"), LibraryRecord("archive", "Archive")),
             tags=(TagRecord("art", "Art"), TagRecord("functional", "Functional")),
             assets=(
                 AssetRecord(

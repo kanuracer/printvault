@@ -62,6 +62,24 @@ describe('PrintVault authenticated asset library', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
+  it('does not expose the legacy filesystem projects library as a model library', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url === '/api/auth/me') return Promise.resolve(jsonResponse({ subject: 'viewer-1', role: 'viewer' }))
+      if (url === '/api/libraries') return Promise.resolve(jsonResponse({ items: [{ key: 'models', name: 'Models' }, { key: 'projects', name: 'Projects' }, { key: 'archive', name: 'Archive' }] }))
+      if (url === '/api/assets') return Promise.resolve(jsonResponse({ items: [] }))
+      if (url === '/api/projects') return Promise.resolve(jsonResponse({ items: [] }))
+      if (url === '/api/tags') return Promise.resolve(jsonResponse({ items: [] }))
+      return Promise.reject(new Error(`Unexpected request: ${url}`))
+    })
+
+    render(<App />)
+    const libraries = await screen.findByRole('navigation', { name: 'Bibliotheken' })
+    expect(within(libraries).queryByRole('button', { name: 'Projects' })).not.toBeInTheDocument()
+  })
+
+
   it('uploads multiple supported files with the editor upload control', async () => {
     const fetchMock = vi.mocked(fetch)
     fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
