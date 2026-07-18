@@ -8,9 +8,29 @@ import type { ViewerSource } from './features/viewer/viewerSource'
 import { applyTheme, readThemePreference, saveThemePreference, type ThemePreference } from './theme'
 
 const appearanceOptions: ThemePreference[] = ['dark', 'light', 'system']
+const EXPLORER_LOCATION_STORAGE_KEY = 'printvault.explorer-location'
 type AuthState = 'loading' | 'authenticated' | 'unauthenticated' | 'denied' | 'error'
 type AssetState = 'loading' | 'ready' | 'error'
 type SelectionState = 'idle' | 'loading' | 'ready' | 'error'
+
+type ExplorerLocation = {
+  libraryKey: string | null
+  projectId: string | null
+  folderId: string | null
+  showProjects: boolean
+}
+
+function readExplorerLocation(): ExplorerLocation {
+  try {
+    const saved = JSON.parse(localStorage.getItem(EXPLORER_LOCATION_STORAGE_KEY) ?? '') as Partial<ExplorerLocation>
+    return {
+      libraryKey: typeof saved.libraryKey === 'string' ? saved.libraryKey : null,
+      projectId: typeof saved.projectId === 'string' ? saved.projectId : null,
+      folderId: typeof saved.folderId === 'string' ? saved.folderId : null,
+      showProjects: saved.showProjects === true,
+    }
+  } catch { return { libraryKey: null, projectId: null, folderId: null, showProjects: false } }
+}
 
 function SearchIcon() {
   return <svg aria-hidden="true" fill="none" height="17" viewBox="0 0 24 24" width="17"><circle cx="11" cy="11" r="6.5" stroke="currentColor" strokeWidth="1.8" /><path d="m16 16 4.2 4.2" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" /></svg>
@@ -75,6 +95,7 @@ function FolderPicker({ disabled = false, folders, label, onChange, value }: { d
 
 export default function App() {
   const { t } = useTranslation()
+  const initialExplorerLocation = useMemo(readExplorerLocation, [])
   const [preference, setPreference] = useState<ThemePreference>(readThemePreference)
   const [authState, setAuthState] = useState<AuthState>('loading')
   const [role, setRole] = useState<UserRole | null>(null)
@@ -94,9 +115,10 @@ export default function App() {
   const [tagKey, setTagKey] = useState('')
   const [tagName, setTagName] = useState('')
   const [selectedTagKeys, setSelectedTagKeys] = useState<string[]>([])
-  const [activeLibrary, setActiveLibrary] = useState<string | null>(null)
-  const [activeProject, setActiveProject] = useState<string | null>(null)
-  const [showProjects, setShowProjects] = useState(false)
+  const [activeLibrary, setActiveLibrary] = useState<string | null>(initialExplorerLocation.libraryKey)
+  const [activeProject, setActiveProject] = useState<string | null>(initialExplorerLocation.projectId)
+  const [activeFolder, setActiveFolder] = useState<string | null>(initialExplorerLocation.folderId)
+  const [showProjects, setShowProjects] = useState(initialExplorerLocation.showProjects)
   const [search, setSearch] = useState('')
   const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null)
   const [selectionState, setSelectionState] = useState<SelectionState>('idle')
@@ -149,6 +171,10 @@ export default function App() {
   }, [t])
 
   useEffect(() => {
+    localStorage.setItem(EXPLORER_LOCATION_STORAGE_KEY, JSON.stringify({ libraryKey: activeLibrary, projectId: activeProject, folderId: activeFolder, showProjects }))
+  }, [activeFolder, activeLibrary, activeProject, showProjects])
+
+  useEffect(() => {
     applyTheme(preference)
     if (preference !== 'system') return undefined
     const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
@@ -162,17 +188,28 @@ export default function App() {
     setPreference(nextPreference)
   }
 
-  const activeProjectAssetIds = useMemo(() => new Set(projects.find((project) => project.id === activeProject)?.assetIds ?? []), [activeProject, projects])
+  const activeProjectRecord = useMemo(() => projects.find((project) => project.id === activeProject) ?? null, [activeProject, projects])
+  const activeProjectAssetIds = useMemo(() => new Set(activeProjectRecord?.assetIds ?? []), [activeProjectRecord])
+  const currentFolder = useMemo(() => activeProjectRecord?.folders.find((folder) => folder.id === activeFolder) ?? null, [activeFolder, activeProjectRecord])
+  const childFolders = useMemo(() => activeProjectRecord?.folders.filter((folder) => folder.parentId === activeFolder) ?? [], [activeFolder, activeProjectRecord])
+  const folderBreadcrumbs = useMemo(() => {
+    if (!activeProjectRecord || !activeFolder) return []
+    const byId = new Map(activeProjectRecord.folders.map((folder) => [folder.id, folder]))
+    const result: ProjectFolder[] = []
+    let folder = byId.get(activeFolder)
+    while (folder) { result.unshift(folder); folder = folder.parentId ? byId.get(folder.parentId) : undefined }
+    return result
+  }, [activeFolder, activeProjectRecord])
 
   const visibleAssets = useMemo(() => {
     const term = search.trim().toLocaleLowerCase()
     return assets.filter((asset) => {
       if (activeLibrary && asset.libraryKey !== activeLibrary) return false
-      if (activeProject && !activeProjectAssetIds.has(asset.id)) return false
+      if (activeProject && (!activeProjectAssetIds.has(asset.id) || (activeProjectRecord?.assetFolderIds[asset.id] ?? null) !== activeFolder)) return false
       if (!term) return true
       return [asset.filename, asset.relativePath, ...asset.tags].some((value) => value.toLocaleLowerCase().includes(term))
     })
-  }, [activeLibrary, activeProject, activeProjectAssetIds, assets, search])
+  }, [activeFolder, activeLibrary, activeProject, activeProjectAssetIds, activeProjectRecord, assets, search])
 
   const canUpload = role === 'editor' || role === 'admin'
   const uploadLibrary = activeLibrary && activeLibrary !== 'archive'
@@ -201,6 +238,7 @@ export default function App() {
   const chooseLibrary = async (libraryKey: string | null) => {
     setActiveLibrary(libraryKey)
     setActiveProject(null)
+    setActiveFolder(null)
     setShowProjects(false)
     setSelectedAsset(null)
     setSelectionState('idle')
@@ -213,6 +251,7 @@ export default function App() {
 
   const chooseProject = async (projectId: string) => {
     setActiveProject(projectId)
+    setActiveFolder(null)
     setActiveLibrary(null)
     setShowProjects(false)
     setSelectedAsset(null)
@@ -228,8 +267,15 @@ export default function App() {
 
   const chooseProjects = () => {
     setActiveProject(null)
+    setActiveFolder(null)
     setActiveLibrary(null)
     setShowProjects(true)
+    setSelectedAsset(null)
+    setSelectionState('idle')
+  }
+
+  const chooseFolder = (folderId: string | null) => {
+    setActiveFolder(folderId)
     setSelectedAsset(null)
     setSelectionState('idle')
   }
@@ -413,7 +459,7 @@ export default function App() {
         </header>
 
         <section aria-label={t('content.title')} className="content">
-          <div className="content-header"><div><p className="section-label">{t('content.eyebrow')}</p><h1>{t('content.title')}</h1>{assetState === 'ready' && <p className="result-count">{t('content.resultCount', { count: visibleAssets.length })}</p>}</div>{canUpload && <button className="primary-button" onClick={() => setProjectFormOpen(true)} type="button">{t('projects.create')}</button>}</div>
+          <div className="content-header"><div>{activeProjectRecord ? <><p className="section-label">{activeProjectRecord.name}</p><div className="folder-breadcrumbs"><button onClick={() => chooseFolder(null)} type="button">{activeProjectRecord.name}</button>{folderBreadcrumbs.map((folder) => <span className="folder-breadcrumb-segment" key={folder.id}><span>/</span><button onClick={() => chooseFolder(folder.id)} type="button">{folder.name}</button></span>)}</div><h1>{currentFolder?.name ?? activeProjectRecord.name}</h1></> : <><p className="section-label">{t('content.eyebrow')}</p><h1>{t('content.title')}</h1></>}{assetState === 'ready' && <p className="result-count">{t('content.resultCount', { count: visibleAssets.length })}</p>}</div>{canUpload && <button className="primary-button" onClick={() => setProjectFormOpen(true)} type="button">{t('projects.create')}</button>}</div>
           {projectFormOpen && <form aria-label={t('projects.create')} className="inline-form" onSubmit={submitProject}><label>{t('projects.name')}<input autoFocus onChange={(event) => setProjectName(event.target.value)} required value={projectName} /></label><label>{t('projects.description')}<textarea onChange={(event) => setProjectDescription(event.target.value)} value={projectDescription} /></label><div className="form-actions"><button className="ghost-button" onClick={() => setProjectFormOpen(false)} type="button">{t('actions.cancel')}</button><button className="primary-button" type="submit">{t('actions.save')}</button></div></form>}
           {activeProject && canUpload && <section className="project-folders"><h2>{t('projects.folder')}</h2><form className="project-folder-form" onSubmit={submitProjectFolder}><label>{t('projects.folderName')}<input onChange={(event) => setFolderName(event.target.value)} required value={folderName} /></label><label>{t('projects.folderParent')}<FolderPicker folders={(projects.find((project) => project.id === activeProject)?.folders ?? [])} label={t('projects.folderRoot')} onChange={setFolderParentId} value={folderParentId} /></label><button className="primary-button" type="submit">{t('projects.folderCreate')}</button></form>{folderMessage && <p className="operation-message" role="status">{folderMessage}</p>}<div className="folder-list">{(projects.find((project) => project.id === activeProject)?.folders ?? []).map((folder) => <span className="folder-chip" key={folder.id}>{folder.parentId ? '↳ ' : ''}{folder.name}</span>)}</div></section>}
           {!showProjects && canUpload && uploadLibrary && <div aria-label={t('upload.dropLabel')} className={`upload-dropzone ${isDragging ? 'is-dragging' : ''}`} onClick={() => fileInput.current?.click()} onDragEnter={(event) => { event.preventDefault(); setIsDragging(true) }} onDragLeave={(event) => { event.preventDefault(); setIsDragging(false) }} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); setIsDragging(false); void handleUpload(event.dataTransfer.files) }} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); fileInput.current?.click() } }} role="button" tabIndex={0}>
@@ -424,7 +470,8 @@ export default function App() {
           {showProjects && <div className="project-grid">{projects.map((project) => <button className="project-card" key={project.id} onClick={() => void chooseProject(project.id)} type="button"><h2>{project.name}</h2>{project.description && <p>{project.description}</p>}<span>{t('content.resultCount', { count: project.assetIds.length })}</span></button>)}</div>}
           {!showProjects && assetState === 'loading' && <p role="status">{t('content.loading')}</p>}
           {!showProjects && assetState === 'error' && <div className="content-state" role="alert"><p>{t('content.error')}</p><button className="ghost-button" onClick={loadWorkspace} type="button">{t('content.retry')}</button></div>}
-          {assetState === 'ready' && visibleAssets.length === 0 && <div className="content-state"><h2>{t('content.emptyTitle')}</h2><p>{t('content.emptyDescription')}</p></div>}
+          {activeProjectRecord && childFolders.length > 0 && <div className="folder-grid">{childFolders.map((folder) => <button aria-label={folder.name} className="folder-card" key={folder.id} onClick={() => chooseFolder(folder.id)} type="button"><span aria-hidden="true" className="folder-card-icon">▰</span><span>{folder.name}</span></button>)}</div>}
+          {assetState === 'ready' && visibleAssets.length === 0 && childFolders.length === 0 && <div className="content-state"><h2>{t('content.emptyTitle')}</h2><p>{t('content.emptyDescription')}</p></div>}
           {assetState === 'ready' && visibleAssets.length > 0 && <div aria-busy="false" className="asset-grid">{visibleAssets.map((asset) => <article className="asset-card" key={asset.id}><button aria-label={asset.filename} className="asset-card-button" onClick={() => void selectAsset(asset.id)} type="button"><div className="asset-preview"><AssetThumbnail assetId={asset.id} revision={thumbnailRevision} /></div><div className="asset-body"><h2 className="asset-name">{asset.filename}</h2><p className="asset-meta">{asset.byteSize === undefined ? t('content.assetMeta', { format: asset.format.toUpperCase(), path: asset.relativePath }) : t('content.assetMetaWithSize', { format: asset.format.toUpperCase(), path: asset.relativePath, size: t('content.fileSize', { size: byteSizeInMegabytes(asset.byteSize) }) })}</p><div className="project-badges">{projects.filter((project) => project.assetIds.includes(asset.id)).map((project) => <span className="project-badge" key={project.id}>{project.name}{project.assetFolderIds[asset.id] ? ` · ${project.folders.find((folder) => folder.id === project.assetFolderIds[asset.id])?.name ?? ''}` : ''}</span>)}</div><div className="tags">{asset.tags.map((tag) => <span className="tag" key={tag}>{tag}</span>)}</div></div></button></article>)}</div>}
         </section>
       </main>

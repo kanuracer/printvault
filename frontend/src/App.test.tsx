@@ -224,6 +224,27 @@ describe('PrintVault authenticated asset library', () => {
     expect(await screen.findByRole('button', { name: /Widget\.stl/i })).toBeVisible()
   })
 
+  it('restores a project folder after refresh and excludes its root models', async () => {
+    const rootAsset = { id: 'root-asset', library_key: 'models', relative_path: 'Root.stl', filename: 'Root.stl', format: 'stl', tags: [], favorite: false, archived: false }
+    const folderAsset = { id: 'folder-asset', library_key: 'models', relative_path: 'Folder.stl', filename: 'Folder.stl', format: 'stl', tags: [], favorite: false, archived: false }
+    localStorage.setItem('printvault.explorer-location', JSON.stringify({ projectId: 'project-1', folderId: 'folder-1' }))
+    vi.mocked(fetch).mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url === '/api/auth/me') return Promise.resolve(jsonResponse({ subject: 'user-1', role: 'viewer' }))
+      if (url === '/api/libraries') return Promise.resolve(jsonResponse({ items: [{ key: 'models', name: 'Modelle' }] }))
+      if (url === '/api/assets') return Promise.resolve(jsonResponse({ items: [rootAsset, folderAsset] }))
+      if (url === '/api/projects') return Promise.resolve(jsonResponse({ items: [{ id: 'project-1', name: 'Drucker', description: '', asset_ids: ['root-asset', 'folder-asset'], folders: [{ id: 'folder-1', name: 'Counter', parent_id: null }], asset_folder_ids: { 'folder-asset': 'folder-1' } }] }))
+      if (url === '/api/tags') return Promise.resolve(jsonResponse({ items: [] }))
+      return Promise.reject(new Error(`Unexpected request: ${url}`))
+    })
+
+    render(<App />)
+
+    expect(await screen.findByRole('heading', { name: 'Counter' })).toBeVisible()
+    expect(screen.getByRole('button', { name: /Folder\.stl/i })).toBeVisible()
+    expect(screen.queryByRole('button', { name: /Root\.stl/i })).not.toBeInTheDocument()
+  })
+
   it('renders the localized asset loading failure without demo content', async () => {
     const fetchMock = vi.mocked(fetch)
     fetchMock.mockImplementation((input: RequestInfo | URL) => {
