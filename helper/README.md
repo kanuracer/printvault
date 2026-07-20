@@ -12,7 +12,26 @@ Current slice:
 - Requires the returned job to match the requested profile, local user/device, configured origin, and a maximum five-minute expiry window.
 - Downloads the asset into a private cache directory, verifies SHA-256, prompts visibly in the CLI, and launches the configured executable with explicit argument list substitution only.
 
-Run the CLI:
+## Linux and Windows bundles
+
+Release assets contain `printvault-helper-linux.zip` and
+`printvault-helper-windows.zip`. Both bundles are portable and require
+Python 3.10+; no credentials are included.
+
+1. Extract the matching ZIP to a private local directory.
+2. Copy `config.example.json` to `config.json` and set the HTTPS origin,
+   registered `user_id`/`device_id`, and slicer executable paths.
+3. Set `PRINTVAULT_HELPER_TOKEN` in the environment before launch.
+4. Linux: run `./printvault-helper 'printvault://open?...'`.
+   Windows: run `printvault-helper.bat "printvault://open?..."`.
+
+Build release bundles locally:
+
+```bash
+python3 helper/build_packages.py
+```
+
+## Developer CLI
 
 ```bash
 export PRINTVAULT_HELPER_TOKEN=...your access token...
@@ -32,5 +51,8 @@ Notes:
 - The helper never executes a server-provided command or arbitrary executable path.
 - This slice includes unit coverage for rejected origins, hash mismatch, expiry, foreign URLs, missing confirmation, and safe subprocess argument construction.
 - It does not claim macOS or Windows end-to-end packaging coverage.
+
+The Windows bundle is package-layout validated on Linux, but requires a real
+Windows + slicer smoke test before claiming native Windows E2E support.
 
 See [`../docs/slicer-helper-protocol.md`](../docs/slicer-helper-protocol.md) and [`config.example.json`](config.example.json).

@@ -889,7 +889,7 @@ export default function App() {
           <div className="library-nav">{projects.slice(0, 30).map((project) => <button className={`nav-item ${activeProject === project.id ? 'is-active' : ''}`} key={project.id} onClick={() => void chooseProject(project.id)} type="button"><span className="nav-bullet" />{project.name}<span className="nav-count">{project.assetIds.length}</span></button>)}{projects.length > 30 && <ProjectPicker assignedProjectIds={new Set()} label={t('projects.open')} onAssign={(projectId) => void chooseProject(projectId)} projects={projects} searchLabel={t('projects.search')} emptyLabel={t('projects.noMatches')} />}</div>
         </nav>
 
-        <button aria-pressed={settingsOpen} className={`nav-item settings-nav-button ${settingsOpen ? 'is-active' : ''}`} onClick={() => { setSettingsOpen(true); setMobileSidebarOpen(false) }} type="button"><span className="nav-bullet" />{t('navigation.settings')}</button>
+        <button aria-pressed={settingsOpen} className={`nav-item settings-nav-button ${settingsOpen ? 'is-active' : ''}`} onClick={() => { setSettingsOpen((open) => !open); setMobileSidebarOpen(false) }} type="button"><span className="nav-bullet" />{t('navigation.settings')}</button>
 
         {settingsOpen && role === 'admin' && <section aria-label={t('admin.excludeRules.title')} className="admin-config-panel">
           <div className="nav-section-heading"><p className="nav-label">{t('admin.excludeRules.title')}</p></div>

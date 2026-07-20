@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.1
+
+### Fixed
+- Settings navigation now toggles closed again after opening it.
+- Restored German umlauts in the Helper UI.
+
+### Added
+- Portable Linux and Windows PrintVault Helper bundles as release assets (Python 3.10+ required).
+
 ## 0.1.0
 
 ### Features

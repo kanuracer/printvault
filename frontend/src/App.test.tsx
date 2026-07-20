@@ -95,6 +95,8 @@ describe('PrintVault authenticated asset library', () => {
       method: 'PUT', body: JSON.stringify({ appearance: 'dark' }),
     })))
     expect(document.documentElement.dataset.theme).toBe('dark')
+    await user.click(screen.getByRole('button', { name: 'Einstellungen' }))
+    expect(screen.queryByLabelText('Dunkel')).not.toBeInTheDocument()
   })
 
   it('loads the server explorer preference and persists a list view change', async () => {
@@ -300,16 +302,16 @@ describe('PrintVault authenticated asset library', () => {
     expect(await screen.findByText('Helper')).toBeVisible()
     expect(screen.getByText('Werkbank')).toBeVisible()
     expect(screen.queryByText(/device_credential/i)).not.toBeInTheDocument()
-    expect(screen.getByText(/Der Helper speichert die Geraeteanmeldung lokal/)).toBeVisible()
+    expect(screen.getByText(/Der Helper speichert die Geräteanmeldung lokal/)).toBeVisible()
 
     await user.click(screen.getByRole('button', { name: 'Kopplungscode erzeugen' }))
     expect(await screen.findByText('PAIR-123456')).toBeVisible()
-    expect(screen.getByText(/Gueltig bis:/)).toBeVisible()
+    expect(screen.getByText(/Gültig bis:/)).toBeVisible()
 
     await user.click(screen.getByRole('button', { name: 'Entziehen' }))
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/helper/devices/device-1', expect.objectContaining({ method: 'DELETE' })))
     await waitFor(() => expect(screen.queryByText('Werkbank')).not.toBeInTheDocument())
-    expect(screen.getByText('Geraet entzogen.')).toBeVisible()
+    expect(screen.getByText('Gerät entzogen.')).toBeVisible()
   })
 
   it('opens mobile navigation and details as dismissible dialogs', async () => {
