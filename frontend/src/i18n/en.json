@@ -17,7 +17,8 @@
   },
   "navigation": {
     "libraries": "Libraries",
-    "allAssets": "All models"
+    "allAssets": "All models",
+    "settings": "Settings"
   },
   "topbar": {
     "searchLabel": "Search models",
@@ -37,7 +38,34 @@
     "retry": "Try again",
     "assetMeta": "{{format}} · {{path}}",
     "assetMetaWithSize": "{{format}} · {{path}} · {{size}}",
-    "fileSize": "{{size}} MB"
+    "fileSize": "{{size}} MB",
+    "pagination": "Page navigation",
+    "previousPage": "Previous",
+    "nextPage": "Next",
+    "page": "Page {{current}} of {{total}}",
+    "view": "Model display",
+    "gridView": "Grid view",
+    "listView": "List view"
+  },
+  "batch": {
+    "toolbar": "Multiple selection",
+    "selectAsset": "Select model: {{name}}",
+    "selected": "{{count}} selected",
+    "tagLabel": "Tag for selection",
+    "tagPlaceholder": "Select tag",
+    "assignTag": "Assign tag",
+    "assignTagFailed": "Tag assignment failed.",
+    "projectLabel": "Project for selection",
+    "projectPlaceholder": "Select project",
+    "assignProject": "Assign project",
+    "assignProjectFailed": "Project assignment failed.",
+    "archive": "Archive selection",
+    "archiveConfirm_one": "Move {{count}} selected model to archive?",
+    "archiveConfirm_other": "Move {{count}} selected models to archive?",
+    "archiveSuccess_one": "{{count}} model archived.",
+    "archiveSuccess_other": "{{count}} models archived.",
+    "archiveFailed": "Archiving the selection failed.",
+    "clear": "Clear selection"
   },
   "upload": {
     "title": "Upload files",
@@ -48,7 +76,11 @@
     "success_one": "{{count}} file uploaded successfully",
     "success_other": "{{count}} files uploaded successfully",
     "partial": "{{uploaded}} uploaded, {{rejected}} rejected",
-    "error": "Upload failed. Please try again."
+    "error": "Upload failed. Please try again.",
+    "duplicateTitle": "Duplicate detected",
+    "duplicateDescription": "“{{filename}}” already exists. What should happen?",
+    "overwrite": "Overwrite existing model",
+    "rename": "Adjust name automatically"
   },
   "inspector": {
     "label": "Details",
@@ -75,7 +107,10 @@
     "resetView": "Reset view",
     "wireframe": "Wireframe",
     "grid": "Grid",
-    "axes": "Axes"
+    "axes": "Axes",
+    "expand": "Expand",
+    "expandedTitle": "Expanded model view",
+    "closeExpanded": "Close view"
   },
   "metadata": {
     "title": "3MF information",
@@ -84,6 +119,41 @@
   },
   "thumbnail": {
     "upload": "Custom thumbnail"
+  },
+  "helper": {
+    "title": "Helper",
+    "description": "Pair your local PrintVault Helper to open downloads directly in your slicer.",
+    "issuePairingCode": "Issue pairing code",
+    "pairingIssued": "Pairing code issued.",
+    "pairingFailed": "Pairing code could not be issued.",
+    "expiresAt": "Expires: {{date}}",
+    "registrationTitle": "Registration",
+    "registrationStepOne": "1. Open the PrintVault Helper on your computer.",
+    "registrationStepTwo": "2. Enter the pairing code there before it expires.",
+    "registrationStepThree": "3. The helper stores the device credential locally. PrintVault will not show it again.",
+    "noDevices": "No paired devices yet.",
+    "deviceMeta": "ID: {{id}} · Added: {{date}}",
+    "unknownDate": "unknown date",
+    "revoke": "Revoke",
+    "revokeSuccess": "Device revoked.",
+    "revokeFailed": "Device could not be revoked."
+  },
+  "admin": {
+    "excludeRules": {
+      "title": "Library exclude rules",
+      "library": "Library",
+      "pattern": "Pattern",
+      "placeholder": "e.g. prototypes/**/*.stl",
+      "add": "Add pattern",
+      "remove": "Remove",
+      "loading": "Loading rules",
+      "empty": "No custom exclude rules for this library.",
+      "saved": "Exclude rule saved.",
+      "removed": "Exclude rule removed.",
+      "loadFailed": "Exclude rules could not be loaded.",
+      "saveFailed": "Exclude rule could not be saved.",
+      "removeFailed": "Exclude rule could not be removed."
+    }
   },
 
   "projects": {
@@ -108,7 +178,10 @@
     "folderName": "New folder",
     "folderParent": "Parent folder",
     "folderCreated": "Folder created.",
-    "folderCreateFailed": "Folder could not be created."
+    "folderCreateFailed": "Folder could not be created.",
+    "dropHere": "Drop here",
+    "moved": "“{{asset}}” was moved to “{{folder}}”.",
+    "moveFailed": "Model could not be moved into the folder."
   },
   "tags": {
     "create": "Create tag",

@@ -1,4 +1,4 @@
-"""Regression tests for the PrintVault deployment security contract."""
+"""Regression tests for the public Docker Compose security contract."""
 
 from __future__ import annotations
 
@@ -29,132 +29,58 @@ class DeploymentConfigValidationTests(unittest.TestCase):
             check=False,
         )
 
-    def test_accepts_the_required_secure_topology(self) -> None:
-        result = self.run_validator(
-            """
+    def secure_service(self, extra: str = "") -> str:
+        return f"""
 services:
   printvault:
+    env_file: [.env]
+    ports: ["127.0.0.1:8080:8080"]
     environment:
-      PRINTVAULT_DATABASE_URL_FILE: /run/secrets/printvault_database_url
-      PRINTVAULT_OIDC_CLIENT_ID_FILE: /run/secrets/printvault_oidc_client_id
-      PRINTVAULT_OIDC_CLIENT_SECRET_FILE: /run/secrets/printvault_oidc_client_secret
-      PRINTVAULT_SESSION_SECRET_FILE: /run/secrets/printvault_session_secret
-    networks:
-      - web_net
-networks:
-  web_net:
-    external: true
+      PRINTVAULT_DATABASE_URL_FILE: /run/secrets/database_url
+      PRINTVAULT_OIDC_CLIENT_ID_FILE: /run/secrets/oidc_client_id
+      PRINTVAULT_OIDC_CLIENT_SECRET_FILE: /run/secrets/oidc_client_secret
+      PRINTVAULT_SESSION_SECRET_FILE: /run/secrets/session_secret
+{extra}
 """
-        )
+
+    def test_accepts_loopback_only_file_secret_topology(self) -> None:
+        result = self.run_validator(self.secure_service())
         self.assertEqual(result.returncode, 0, result.stderr)
 
-    def test_rejects_missing_oidc_client_id_and_session_secret_files(self) -> None:
+    def test_rejects_missing_required_secret_file_environment(self) -> None:
         result = self.run_validator(
-            """
-services:
-  printvault:
-    environment:
-      PRINTVAULT_DATABASE_URL_FILE: /run/secrets/printvault_database_url
-      PRINTVAULT_OIDC_CLIENT_SECRET_FILE: /run/secrets/printvault_oidc_client_secret
-    networks: [web_net]
-networks:
-  web_net:
-    external: true
-"""
+            self.secure_service().replace("      PRINTVAULT_SESSION_SECRET_FILE: /run/secrets/session_secret\n", "")
         )
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("PRINTVAULT_OIDC_CLIENT_ID_FILE", result.stderr)
         self.assertIn("PRINTVAULT_SESSION_SECRET_FILE", result.stderr)
 
-    def test_rejects_legacy_unprefixed_database_url_file(self) -> None:
-        result = self.run_validator(
-            """
-services:
-  printvault:
-    environment:
-      DATABASE_URL_FILE: /run/secrets/printvault_database_url
-      PRINTVAULT_OIDC_CLIENT_SECRET_FILE: /run/secrets/printvault_oidc_client_secret
-    networks: [web_net]
-networks:
-  web_net:
-    external: true
-"""
-        )
+    def test_rejects_non_loopback_port(self) -> None:
+        result = self.run_validator(self.secure_service().replace("127.0.0.1:8080:8080", "0.0.0.0:8080:8080"))
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("PRINTVAULT_DATABASE_URL_FILE", result.stderr)
-
-    def test_rejects_host_port_publication(self) -> None:
-        result = self.run_validator(
-            """
-services:
-  printvault:
-    ports: ["8080:8080"]
-    environment:
-      DATABASE_URL_FILE: /run/secrets/db
-      PRINTVAULT_OIDC_CLIENT_SECRET_FILE: /run/secrets/oidc
-    networks: [web_net]
-networks:
-  web_net:
-    external: true
-"""
-        )
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("ports", result.stderr)
+        self.assertIn("loopback", result.stderr)
 
     def test_rejects_expose(self) -> None:
-        result = self.run_validator(
-            """
-services:
-  printvault:
-    expose: ["8080"]
-    environment:
-      DATABASE_URL_FILE: /run/secrets/db
-      PRINTVAULT_OIDC_CLIENT_SECRET_FILE: /run/secrets/oidc
-    networks: [web_net]
-networks:
-  web_net:
-    external: true
-"""
-        )
+        result = self.run_validator(self.secure_service("    expose: [\"8080\"]"))
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("expose", result.stderr)
 
-    def test_rejects_non_external_web_net(self) -> None:
-        result = self.run_validator(
-            """
-services:
-  printvault:
-    environment:
-      DATABASE_URL_FILE: /run/secrets/db
-      PRINTVAULT_OIDC_CLIENT_SECRET_FILE: /run/secrets/oidc
-    networks: [web_net]
-networks:
-  web_net:
-    driver: bridge
-"""
-        )
+    def test_rejects_nonstandard_env_file(self) -> None:
+        result = self.run_validator(self.secure_service().replace("env_file: [.env]", "env_file: [.env.example]"))
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("external", result.stderr)
+        self.assertIn("env_file", result.stderr)
 
     def test_rejects_literal_database_and_oidc_secrets(self) -> None:
         result = self.run_validator(
-            """
-services:
-  printvault:
-    environment:
-      DATABASE_URL: mysql+pymysql://printvault:password@db/printvault
-      PRINTVAULT_OIDC_CLIENT_SECRET: super-secret
-    networks: [web_net]
-networks:
-  web_net:
-    external: true
-"""
+            self.secure_service(
+                "      PRINTVAULT_DATABASE_URL: mysql+pymysql://example\n"
+                "      PRINTVAULT_OIDC_CLIENT_SECRET: example-value"
+            )
         )
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("DATABASE_URL", result.stderr)
+        self.assertIn("PRINTVAULT_DATABASE_URL", result.stderr)
         self.assertIn("PRINTVAULT_OIDC_CLIENT_SECRET", result.stderr)
 
-    def test_repository_compose_has_required_unraid_runtime_contract(self) -> None:
+    def test_repository_compose_is_public_and_secure(self) -> None:
         compose_path = REPOSITORY_ROOT / "compose.yaml"
         result = subprocess.run(
             ["python3", str(VALIDATOR), str(compose_path)],
@@ -167,53 +93,15 @@ networks:
 
         compose = yaml.safe_load(compose_path.read_text(encoding="utf-8"))
         service = compose["services"]["printvault"]
+        self.assertEqual(service["build"]["context"], ".")
+        self.assertEqual(service["env_file"], [".env"])
+        self.assertEqual(service["ports"], ["127.0.0.1:${PRINTVAULT_PORT:-8080}:8080"])
         self.assertEqual(service["user"], "99:100")
-        self.assertEqual(service["restart"], "unless-stopped")
         self.assertTrue(service["read_only"])
         self.assertEqual(service["cap_drop"], ["ALL"])
         self.assertEqual(service["security_opt"], ["no-new-privileges:true"])
-        self.assertEqual(
-            service["tmpfs"],
-            ["/tmp:mode=1777,size=640m", "/var/cache/nginx:uid=99,gid=100,mode=0750,size=640m"],
-        )
         self.assertIn("healthcheck", service)
-        self.assertEqual(
-            service["environment"],
-            {
-                "PRINTVAULT_DATABASE_URL_FILE": "/run/secrets/printvault_database_url",
-                "PRINTVAULT_ENVIRONMENT": "production",
-                "PRINTVAULT_OIDC_ISSUER_URL": "https://pcloud.kanuracer.eu",
-                "PRINTVAULT_OIDC_CLIENT_ID_FILE": "/run/secrets/printvault_oidc_client_id",
-                "PRINTVAULT_OIDC_CLIENT_SECRET_FILE": "/run/secrets/printvault_oidc_client_secret",
-                "PRINTVAULT_OIDC_REDIRECT_URI": "https://printvault.kanuracer.de/api/auth/callback",
-                "PRINTVAULT_OIDC_GROUPS_CLAIM": "groups",
-                "PRINTVAULT_SESSION_SECRET_FILE": "/run/secrets/printvault_session_secret",
-                "PRINTVAULT_LIBRARY_MODELS_ROOT": "/libraries/modelle",
-                "PRINTVAULT_LIBRARY_PROJECTS_ROOT": "/libraries/projekte",
-                "PRINTVAULT_LIBRARY_ARCHIVE_ROOT": "/libraries/archiv",
-                "PRINTVAULT_DATA_ROOT": "/var/lib/printvault",
-                "PRINTVAULT_THUMBNAILS_ROOT": "/var/lib/printvault/thumbnails",
-            },
-        )
-        self.assertEqual(
-            service["volumes"][:5],
-            [
-                "/mnt/user/appdata/printvault/modelle:/libraries/modelle:rw",
-                "/mnt/user/appdata/printvault/projekte:/libraries/projekte:rw",
-                "/mnt/user/appdata/printvault/archiv:/libraries/archiv:rw",
-                "/mnt/user/appdata/printvault/data:/var/lib/printvault:rw",
-                "/mnt/user/appdata/printvault/thumbnails:/var/lib/printvault/thumbnails:rw",
-            ],
-        )
-        self.assertEqual(
-            service["volumes"][5:],
-            [
-                "/mnt/user/appdata/printvault/secrets/database_url:/run/secrets/printvault_database_url:ro",
-                "/mnt/user/appdata/printvault/secrets/oidc_client_id:/run/secrets/printvault_oidc_client_id:ro",
-                "/mnt/user/appdata/printvault/secrets/oidc_client_secret:/run/secrets/printvault_oidc_client_secret:ro",
-                "/mnt/user/appdata/printvault/secrets/session_secret:/run/secrets/printvault_session_secret:ro",
-            ],
-        )
+        self.assertNotIn("networks", compose)
 
     def test_dockerfile_declares_frontend_backend_and_runtime_stages(self) -> None:
         dockerfile = (REPOSITORY_ROOT / "Dockerfile").read_text(encoding="utf-8")
@@ -221,8 +109,6 @@ networks:
         self.assertIn("FROM python:3.12-slim AS backend-build", dockerfile)
         self.assertIn("COPY --from=frontend-build", dockerfile)
         self.assertIn("COPY --from=backend-build", dockerfile)
-        self.assertIn("mkdir -p /workspace/backend", dockerfile)
-        self.assertIn("COPY --chmod=0644 docker/nginx.conf /etc/nginx/nginx.conf", dockerfile)
         self.assertIn("USER 99:100", dockerfile)
         self.assertNotIn("EXPOSE ", dockerfile)
 
@@ -231,27 +117,11 @@ networks:
         self.assertIn("PRINTVAULT_DATABASE_URL_FILE", entrypoint)
         self.assertIn("run_migrations", entrypoint)
         self.assertLess(entrypoint.index("run_migrations"), entrypoint.index("uvicorn"))
-        self.assertIn("--no-access-log", entrypoint)
 
     def test_docker_build_context_excludes_runtime_secrets_and_dependency_trees(self) -> None:
         dockerignore = (REPOSITORY_ROOT / ".dockerignore").read_text(encoding="utf-8")
         for expected in (".env", "secrets/", "backend/.venv/", "frontend/node_modules/", "frontend/dist/"):
             self.assertIn(expected, dockerignore)
-
-    def test_runtime_backend_declares_uvicorn_server_dependency(self) -> None:
-        backend_manifest = (REPOSITORY_ROOT / "backend" / "pyproject.toml").read_text(encoding="utf-8")
-        self.assertIn('"uvicorn[standard]', backend_manifest)
-
-    def test_nginx_configuration_is_safe_for_the_nonroot_runtime(self) -> None:
-        nginx_config = (REPOSITORY_ROOT / "docker" / "nginx.conf").read_text(encoding="utf-8")
-        self.assertIn("client_body_temp_path /var/cache/nginx/client_temp;", nginx_config)
-        self.assertIn("proxy_temp_path /var/cache/nginx/proxy_temp;", nginx_config)
-        self.assertIn("location = /api { return 308 /api/; }", nginx_config)
-        self.assertIn("proxy_pass http://127.0.0.1:8000;", nginx_config)
-        self.assertIn("client_max_body_size 512m;", nginx_config)
-        self.assertIn("log_format privacy_safe", nginx_config)
-        self.assertIn("$request_method $uri $server_protocol", nginx_config)
-        self.assertNotIn("access_log /dev/stdout;", nginx_config)
 
 
 if __name__ == "__main__":

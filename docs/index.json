@@ -1,55 +1,21 @@
 {
   "schemaVersion": 1,
   "project": "printvault",
-  "defaultLocale": "de",
-  "documentationPolicy": {
-    "wiki": "private canonical project documentation",
-    "indexPurpose": "Targeted documentation lookup without loading whole wiki pages",
-    "secretPolicy": "No passwords, tokens, internal addresses, usernames, or secret-file paths"
-  },
   "documents": [
-    {
-      "id": "wiki-project-page",
-      "file": "docs/wiki-project-initial.md",
-      "wikiPath": "projekte/printvault",
-      "summary": "Canonical private Wiki.js project page with verified implementation status and security/deployment overview.",
-      "topics": ["wiki", "project-status", "security", "deployment"],
-      "status": "published"
-    },
-    {
-      "id": "implementation-plan",
-      "file": "docs/plans/2026-07-18-printvault.md",
-      "summary": "Verified implementation plan: Unraid/Dockhand, writable libraries, OIDC, MariaDB/SQLite, WebGL viewer, i18n and slicer helper.",
-      "topics": ["architecture", "security", "docker", "oidc", "mariadb", "sqlite", "viewer", "i18n", "slicer"],
-      "status": "active"
-    },
     {
       "id": "deployment",
       "file": "docs/deployment.md",
-      "summary": "Dockhand deployment, external web_net, reverse proxy and DNS procedure.",
-      "topics": ["deployment", "dockhand", "docker", "reverse-proxy", "dns", "tls"],
-      "status": "planned"
-    },
-    {
-      "id": "operations",
-      "file": "docs/operations.md",
-      "summary": "Scanning, backups, restore, cleanup and diagnostics runbook.",
-      "topics": ["operations", "indexing", "archive", "backup", "diagnostics"],
-      "status": "planned"
+      "summary": "Public Docker, OIDC and reverse-proxy deployment guide."
     },
     {
       "id": "security",
       "file": "docs/security.md",
-      "summary": "OIDC roles, filesystem boundaries, audit events and secret handling.",
-      "topics": ["security", "oidc", "rbac", "filesystem", "audit"],
-      "status": "planned"
+      "summary": "Authentication, secret handling, network exposure and vulnerability reporting."
     },
     {
       "id": "slicer-helper",
       "file": "docs/slicer-helper-protocol.md",
-      "summary": "Local native-slicer helper protocol and cross-platform installation.",
-      "topics": ["slicer", "helper", "windows", "linux", "macos"],
-      "status": "active"
+      "summary": "Optional local native-slicer helper protocol."
     }
   ]
 }

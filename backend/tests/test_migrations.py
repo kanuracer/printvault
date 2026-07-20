@@ -9,4 +9,4 @@ def test_run_migrations_creates_initial_schema(tmp_path: Path) -> None:
     database_path = tmp_path / "migration.sqlite3"
     run_migrations(f"sqlite:///{database_path}")
 
-    assert {"alembic_version", "application_settings"} <= set(inspect(create_engine(f"sqlite:///{database_path}")).get_table_names())
+    assert {"alembic_version", "application_settings", "library_exclude_rules"} <= set(inspect(create_engine(f"sqlite:///{database_path}")).get_table_names())

@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     library_archive_root: Path
     data_root: Path
     thumbnails_root: Path
+    index_exclude_patterns: tuple[str, ...] = ()
 
     oidc_issuer_url: str | None = None
     oidc_client_id: str | None = None

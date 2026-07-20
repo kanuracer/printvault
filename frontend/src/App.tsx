@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import './i18n'
-import { ApiError, archiveAsset, assetDownloadUrl, assignProjectAsset, createProject, createProjectFolder, createTag, deleteAsset, getAppearancePreference, getAsset, getAssets, getCurrentUser, getLibraries, getProjects, getTags, removeProjectAsset, restoreAsset, setAppearancePreference, setAssetTags, uploadAssetThumbnail, uploadFiles, type Asset, type Library, type Project, type ProjectFolder, type Tag, type UserRole } from './api'
+import { ApiError, addLibraryExcludeRule, archiveAsset, archiveAssetsBatch, assetDownloadUrl, assignProjectAsset, assignProjectAssetsBatch, createProject, createProjectFolder, createTag, deleteAsset, getAppearancePreference, getAsset, getAssetPage, getCurrentUser, getExplorerPreference, getHelperDevices, getLibraries, getLibraryExcludeRules, getProjects, getTags, issueHelperPairingCode, removeLibraryExcludeRule, removeProjectAsset, restoreAsset, revokeHelperDevice, setAppearancePreference, setAssetTags, setAssetTagsBatch, setExplorerPreference, uploadAssetThumbnail, uploadFiles, type Asset, type AssetPageQuery, type ExplorerPreference, type HelperDevice, type HelperPairingCode, type Library, type LibraryExcludeRule, type Project, type ProjectFolder, type Tag, type UploadCollisionPolicy, type UserRole } from './api'
 import { ModelViewer } from './features/viewer/ModelViewer'
 import { AssetThumbnail } from './features/viewer/AssetThumbnail'
 import type { ViewerSource } from './features/viewer/viewerSource'
@@ -12,6 +12,11 @@ const EXPLORER_LOCATION_STORAGE_KEY = 'printvault.explorer-location'
 type AuthState = 'loading' | 'authenticated' | 'unauthenticated' | 'denied' | 'error'
 type AssetState = 'loading' | 'ready' | 'error'
 type SelectionState = 'idle' | 'loading' | 'ready' | 'error'
+type PendingDuplicateUpload = { file: File, libraryKey: string }
+
+function apiErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof ApiError && error.detail ? error.detail : fallback
+}
 
 type ExplorerLocation = {
   libraryKey: string | null
@@ -78,6 +83,13 @@ function byteSizeInMegabytes(byteSize: number): string {
   return new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 }).format(byteSize / (1024 * 1024))
 }
 
+function formatDateTime(value: string): string {
+  const date = new Date(value)
+  return Number.isNaN(date.getTime())
+    ? value
+    : new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(date)
+}
+
 function humanReadableText(value: string): string {
   let decoded = value
   for (let index = 0; index < 3; index += 1) {
@@ -109,6 +121,14 @@ function threeMfDocuments(asset: Asset): Array<{ label: string, text?: string }>
     const item = document as Record<string, unknown>
     return typeof item.label === 'string' ? [{ label: item.label, ...(typeof item.text === 'string' ? { text: item.text } : {}) }] : []
   })
+}
+
+function threeMfBuildColors(asset: Asset): Array<string | null> {
+  const packageMetadata = asset.metadata.three_mf
+  if (!packageMetadata || typeof packageMetadata !== 'object') return []
+  const buildColors = (packageMetadata as Record<string, unknown>).build_colors
+  if (!Array.isArray(buildColors)) return []
+  return buildColors.map((color) => typeof color === 'string' && /^#[0-9a-f]{6}(?:[0-9a-f]{2})?$/i.test(color) ? color : null)
 }
 
 function FolderPicker({ disabled = false, folders, label, onChange, value }: { disabled?: boolean, folders: ProjectFolder[], label: string, onChange: (id: string | null) => void, value: string | null }) {
@@ -146,6 +166,8 @@ export default function App() {
   const [assetState, setAssetState] = useState<AssetState>('loading')
   const [libraries, setLibraries] = useState<Library[]>([])
   const [assets, setAssets] = useState<Asset[]>([])
+  const [assetPage, setAssetPage] = useState({ total: 0, limit: 50, offset: 0 })
+  const [explorerPreference, setExplorerPreferenceState] = useState<ExplorerPreference>({ view: 'grid', pageSize: 50 })
   const [projects, setProjects] = useState<Project[]>([])
   const [tags, setTags] = useState<Tag[]>([])
   const [projectFormOpen, setProjectFormOpen] = useState(false)
@@ -163,23 +185,54 @@ export default function App() {
   const [libraryTagFilters, setLibraryTagFilters] = useState<string[]>([])
   const [projectMutationId, setProjectMutationId] = useState<string | null>(null)
   const [folderProjectId, setFolderProjectId] = useState<string | null>(null)
+  const [adminLibraryKey, setAdminLibraryKey] = useState<string | null>(null)
+  const [libraryExcludeRules, setLibraryExcludeRules] = useState<LibraryExcludeRule[]>([])
+  const [libraryExcludePattern, setLibraryExcludePattern] = useState('')
+  const [libraryExcludeLoading, setLibraryExcludeLoading] = useState(false)
+  const [libraryExcludeBusy, setLibraryExcludeBusy] = useState(false)
+  const [libraryExcludeError, setLibraryExcludeError] = useState<string | null>(null)
+  const [libraryExcludeMessage, setLibraryExcludeMessage] = useState<string | null>(null)
+  const [helperPairingCode, setHelperPairingCode] = useState<HelperPairingCode | null>(null)
+  const [helperDevices, setHelperDevices] = useState<HelperDevice[]>([])
+  const [helperBusy, setHelperBusy] = useState(false)
+  const [helperError, setHelperError] = useState<string | null>(null)
+  const [helperMessage, setHelperMessage] = useState<string | null>(null)
   const [activeLibrary, setActiveLibrary] = useState<string | null>(initialExplorerLocation.libraryKey)
   const [activeProject, setActiveProject] = useState<string | null>(initialExplorerLocation.projectId)
   const [activeFolder, setActiveFolder] = useState<string | null>(initialExplorerLocation.folderId)
   const [showProjects, setShowProjects] = useState(initialExplorerLocation.showProjects)
   const [search, setSearch] = useState('')
   const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null)
+  const [selectedAssetIds, setSelectedAssetIds] = useState<string[]>([])
+  const [batchTagKey, setBatchTagKey] = useState('')
+  const [batchProjectId, setBatchProjectId] = useState('')
+  const [batchBusy, setBatchBusy] = useState(false)
+  const [batchMessage, setBatchMessage] = useState<string | null>(null)
+  const [batchError, setBatchError] = useState<string | null>(null)
   const [selectionState, setSelectionState] = useState<SelectionState>('idle')
   const [uploading, setUploading] = useState(false)
+  const [pendingDuplicateUploads, setPendingDuplicateUploads] = useState<PendingDuplicateUpload[]>([])
+  const [duplicateDecisionBusy, setDuplicateDecisionBusy] = useState(false)
   const [isDragging, setIsDragging] = useState(false)
+  const [draggingProjectAssetId, setDraggingProjectAssetId] = useState<string | null>(null)
+  const [folderDropTargetId, setFolderDropTargetId] = useState<string | null>(null)
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
   const [mobileInspectorOpen, setMobileInspectorOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
 
   const [thumbnailRevision, setThumbnailRevision] = useState(0)
   const [uploadMessage, setUploadMessage] = useState<string | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
   const thumbnailInput = useRef<HTMLInputElement>(null)
   const appearanceMutation = useRef(0)
+  const draggedProjectAssetId = useRef<string | null>(null)
+  const projectFolderMoveBusy = useRef(false)
+
+  const loadAssetPage = async (query: AssetPageQuery = {}) => {
+    const page = await getAssetPage(query)
+    setAssets(page.items)
+    setAssetPage({ total: page.total, limit: page.limit, offset: page.offset })
+  }
 
   const loadWorkspace = () => {
     let cancelled = false
@@ -201,13 +254,17 @@ export default function App() {
           })
           .catch(() => undefined)
         try {
-          const [nextLibraries, nextAssets, nextProjects, nextTags] = await Promise.all([getLibraries(), getAssets(), getProjects(), getTags()])
+          const [nextExplorerPreference, nextLibraries, nextAssetPage, nextProjects, nextTags, nextHelperDevices] = await Promise.all([getExplorerPreference().catch((): ExplorerPreference => ({ view: 'grid', pageSize: 50 })), getLibraries(), getAssetPage(), getProjects(), getTags(), getHelperDevices().catch((): HelperDevice[] => [])])
           if (cancelled) return
+          setExplorerPreferenceState(nextExplorerPreference)
           setLibraries(nextLibraries.filter((library) => library.key !== 'projects'))
+          setAdminLibraryKey((current) => current ?? nextLibraries.find((library) => library.key !== 'projects')?.key ?? null)
           if (activeLibrary === 'projects') setActiveLibrary(null)
-          setAssets(nextAssets)
+          setAssets(nextAssetPage.items)
+          setAssetPage({ total: nextAssetPage.total, limit: nextAssetPage.limit, offset: nextAssetPage.offset })
           setProjects(nextProjects)
           setTags(nextTags)
+          setHelperDevices(nextHelperDevices)
           setAssetState('ready')
         } catch {
           if (!cancelled) setAssetState('error')
@@ -230,6 +287,29 @@ export default function App() {
   }, [t])
 
   useEffect(() => {
+    if (role !== 'admin' || !adminLibraryKey) {
+      setLibraryExcludeRules([])
+      setLibraryExcludeError(null)
+      setLibraryExcludeMessage(null)
+      return
+    }
+    let cancelled = false
+    setLibraryExcludeLoading(true)
+    setLibraryExcludeError(null)
+    void getLibraryExcludeRules(adminLibraryKey)
+      .then((rules) => {
+        if (!cancelled) setLibraryExcludeRules(rules)
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) setLibraryExcludeError(apiErrorMessage(error, t('admin.excludeRules.loadFailed')))
+      })
+      .finally(() => {
+        if (!cancelled) setLibraryExcludeLoading(false)
+      })
+    return () => { cancelled = true }
+  }, [adminLibraryKey, role, t])
+
+  useEffect(() => {
     localStorage.setItem(EXPLORER_LOCATION_STORAGE_KEY, JSON.stringify({ libraryKey: activeLibrary, projectId: activeProject, folderId: activeFolder, showProjects }))
   }, [activeFolder, activeLibrary, activeProject, showProjects])
 
@@ -244,6 +324,13 @@ export default function App() {
       setShowProjects(location.showProjects)
       setSelectedAsset(null)
       setSelectionState('idle')
+      if (location.showProjects) return
+      setAssetState('loading')
+      void loadAssetPage(location.projectId
+        ? { projectId: location.projectId, folderId: location.folderId }
+        : { libraryKey: location.libraryKey })
+        .then(() => setAssetState('ready'))
+        .catch(() => setAssetState('error'))
     }
     window.addEventListener('popstate', onPopState)
     return () => window.removeEventListener('popstate', onPopState)
@@ -288,6 +375,73 @@ export default function App() {
       })
   }
 
+  const selectExplorerView = (view: ExplorerPreference['view']) => {
+    const previous = explorerPreference
+    const next = { ...previous, view }
+    setExplorerPreferenceState(next)
+    void setExplorerPreference(next.view, next.pageSize)
+      .then(setExplorerPreferenceState)
+      .catch(() => setExplorerPreferenceState(previous))
+  }
+
+  const toggleAssetSelection = (assetId: string) => {
+    setSelectedAssetIds((current) => current.includes(assetId) ? current.filter((id) => id !== assetId) : current.length < 100 ? [...current, assetId] : current)
+  }
+
+  const assignBatchTag = async () => {
+    if (!batchTagKey || selectedAssetIds.length === 0 || batchBusy) return
+    setBatchBusy(true)
+    setBatchMessage(null)
+    setBatchError(null)
+    try {
+      const updated = await setAssetTagsBatch(selectedAssetIds, [batchTagKey])
+      setAssets((current) => current.map((asset) => updated.find((item) => item.id === asset.id) ?? asset))
+      if (selectedAsset && updated.some((asset) => asset.id === selectedAsset.id)) setSelectedAsset(updated.find((asset) => asset.id === selectedAsset.id) ?? selectedAsset)
+      setSelectedAssetIds([])
+      setBatchTagKey('')
+    } catch (error) { setBatchError(apiErrorMessage(error, t('batch.assignTagFailed'))) }
+    finally { setBatchBusy(false) }
+  }
+
+  const assignBatchProject = async () => {
+    if (!batchProjectId || selectedAssetIds.length === 0 || batchBusy) return
+    setBatchBusy(true)
+    setBatchMessage(null)
+    setBatchError(null)
+    try {
+      const updated = await assignProjectAssetsBatch(batchProjectId, selectedAssetIds)
+      setProjects((current) => current.map((project) => project.id === updated.id ? updated : project))
+      setSelectedAssetIds([])
+      setBatchProjectId('')
+    } catch (error) { setBatchError(apiErrorMessage(error, t('batch.assignProjectFailed'))) }
+    finally { setBatchBusy(false) }
+  }
+
+  const archiveBatchSelection = async () => {
+    if (selectedBatchAssets.length === 0 || batchArchiveDisabled) return
+    if (!window.confirm(t('batch.archiveConfirm', { count: selectedBatchAssets.length }))) return
+    setBatchBusy(true)
+    setBatchMessage(null)
+    setBatchError(null)
+    try {
+      const archived = await archiveAssetsBatch(selectedAssetIds)
+      const archivedIds = new Set(archived.map((asset) => asset.id))
+      setAssets((current) => current.filter((asset) => !archivedIds.has(asset.id)))
+      if (selectedAsset && archivedIds.has(selectedAsset.id)) {
+        setSelectedAsset(null)
+        setSelectionState('idle')
+      }
+      setSelectedAssetIds([])
+      setBatchTagKey('')
+      setBatchProjectId('')
+      setBatchMessage(t('batch.archiveSuccess', { count: archived.length }))
+    } catch (error) {
+      setBatchError(apiErrorMessage(error, t('batch.archiveFailed')))
+    } finally {
+      setBatchBusy(false)
+    }
+  }
+
   const activeProjectRecord = useMemo(() => projects.find((project) => project.id === activeProject) ?? null, [activeProject, projects])
   const activeProjectAssetIds = useMemo(() => new Set(activeProjectRecord?.assetIds ?? []), [activeProjectRecord])
   const currentFolder = useMemo(() => activeProjectRecord?.folders.find((folder) => folder.id === activeFolder) ?? null, [activeFolder, activeProjectRecord])
@@ -313,6 +467,23 @@ export default function App() {
     })
   }, [activeFolder, activeLibrary, activeProject, activeProjectAssetIds, activeProjectRecord, assets, libraryProjectFilters, libraryTagFilters, projects, search])
 
+  const selectedBatchAssets = useMemo(
+    () => selectedAssetIds.flatMap((assetId) => {
+      const asset = assets.find((candidate) => candidate.id === assetId)
+      return asset ? [asset] : []
+    }),
+    [assets, selectedAssetIds],
+  )
+  const batchArchiveDisabled = batchBusy || selectedBatchAssets.length !== selectedAssetIds.length || selectedBatchAssets.some((asset) => asset.archived)
+
+  const loadCurrentAssetPage = async (offset: number) => {
+    setAssetState('loading')
+    try {
+      await loadAssetPage(activeProject ? { projectId: activeProject, folderId: activeFolder, offset } : { libraryKey: activeLibrary, offset })
+      setAssetState('ready')
+    } catch { setAssetState('error') }
+  }
+
   const canUpload = role === 'editor' || role === 'admin'
   const uploadLibrary = activeLibrary && activeLibrary !== 'archive'
     ? activeLibrary
@@ -326,14 +497,31 @@ export default function App() {
     setShowProjects(location.showProjects)
   }
 
+  const applyUploadedAssets = (uploaded: Asset[]) => {
+    setAssets((current) => [...current.filter((asset) => !uploaded.some((item) => item.id === asset.id)), ...uploaded])
+  }
+
+  const collisionFiles = (files: File[], rejected: Array<{ filename: string, reason: string }>) => {
+    const remainingByName = new Map<string, number>()
+    rejected.filter((item) => item.reason === 'collision').forEach((item) => remainingByName.set(item.filename, (remainingByName.get(item.filename) ?? 0) + 1))
+    return files.filter((file) => {
+      const remaining = remainingByName.get(file.name) ?? 0
+      if (remaining === 0) return false
+      remainingByName.set(file.name, remaining - 1)
+      return true
+    })
+  }
+
   const handleUpload = async (incoming: FileList | File[]) => {
     const files = Array.from(incoming)
-    if (!canUpload || !uploadLibrary || files.length === 0 || uploading) return
+    if (!canUpload || !uploadLibrary || files.length === 0 || uploading || duplicateDecisionBusy) return
     setUploading(true)
     setUploadMessage(null)
     try {
       const result = await uploadFiles(uploadLibrary, files)
-      setAssets((current) => [...current.filter((asset) => !result.items.some((uploaded) => uploaded.id === asset.id)), ...result.items])
+      applyUploadedAssets(result.items)
+      const collisions = collisionFiles(files, result.rejected)
+      if (collisions.length > 0) setPendingDuplicateUploads(collisions.map((file) => ({ file, libraryKey: uploadLibrary })))
       setUploadMessage(result.rejected.length === 0
         ? t('upload.success', { count: result.items.length })
         : t('upload.partial', { uploaded: result.items.length, rejected: result.rejected.length }))
@@ -345,6 +533,22 @@ export default function App() {
     }
   }
 
+  const decideDuplicateUpload = async (collisionPolicy: Exclude<UploadCollisionPolicy, 'reject'>) => {
+    const pending = pendingDuplicateUploads[0]
+    if (!pending || duplicateDecisionBusy) return
+    setDuplicateDecisionBusy(true)
+    try {
+      const result = await uploadFiles(pending.libraryKey, [pending.file], collisionPolicy)
+      applyUploadedAssets(result.items)
+      setPendingDuplicateUploads((current) => current.slice(1))
+      setUploadMessage(result.items.length === 1 ? t('upload.success', { count: 1 }) : t('upload.error'))
+    } catch {
+      setUploadMessage(t('upload.error'))
+    } finally {
+      setDuplicateDecisionBusy(false)
+    }
+  }
+
   const chooseLibrary = async (libraryKey: string | null) => {
     setMobileSidebarOpen(false)
     navigateExplorer({ libraryKey, projectId: null, folderId: null, showProjects: false })
@@ -352,7 +556,7 @@ export default function App() {
     setSelectionState('idle')
     setAssetState('loading')
     try {
-      setAssets(await getAssets(libraryKey))
+      await loadAssetPage({ libraryKey })
       setAssetState('ready')
     } catch { setAssetState('error') }
   }
@@ -364,7 +568,7 @@ export default function App() {
     setSelectionState('idle')
     setAssetState('loading')
     try {
-      setAssets(await getAssets())
+      await loadAssetPage({ projectId })
       setAssetState('ready')
     } catch {
       setAssetState('error')
@@ -378,12 +582,17 @@ export default function App() {
     setSelectionState('idle')
   }
 
-  const chooseFolder = (folderId: string | null) => {
+  const chooseFolder = async (folderId: string | null) => {
     setMobileSidebarOpen(false)
     if (!activeProject) return
     navigateExplorer({ libraryKey: null, projectId: activeProject, folderId, showProjects: false })
     setSelectedAsset(null)
     setSelectionState('idle')
+    setAssetState('loading')
+    try {
+      await loadAssetPage({ projectId: activeProject, folderId })
+      setAssetState('ready')
+    } catch { setAssetState('error') }
   }
 
   const submitProject = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -439,6 +648,52 @@ export default function App() {
       setProjectMessage(t('projects.assigned', { asset: selectedAsset.filename, project: updated.name }))
     } catch { setProjectMessage(t('projects.assignFailed')) }
     finally { setProjectMutationId(null) }
+  }
+
+  const clearProjectFolderDrag = () => {
+    draggedProjectAssetId.current = null
+    setDraggingProjectAssetId(null)
+    setFolderDropTargetId(null)
+  }
+
+  const moveProjectAssetToFolder = async (assetId: string, folderId: string) => {
+    const project = activeProjectRecord
+    const asset = assets.find((candidate) => candidate.id === assetId)
+    const folder = project?.folders.find((candidate) => candidate.id === folderId)
+    if (!canUpload || !project || !asset || !folder || projectMutationId || projectFolderMoveBusy.current || !project.assetIds.includes(assetId)) return
+    projectFolderMoveBusy.current = true
+    setProjectMutationId(project.id)
+    try {
+      const updated = await assignProjectAsset(project.id, assetId, folder.id)
+      setProjects((current) => current.map((candidate) => candidate.id === updated.id ? updated : candidate))
+      setProjectMessage(t('projects.moved', { asset: asset.filename, folder: folder.name }))
+    } catch { setProjectMessage(t('projects.moveFailed')) }
+    finally {
+      projectFolderMoveBusy.current = false
+      setProjectMutationId(null)
+    }
+  }
+
+  const beginProjectFolderDrag = (event: React.DragEvent<HTMLElement>, assetId: string) => {
+    if (!canUpload || !activeProjectRecord || projectMutationId || !activeProjectAssetIds.has(assetId)) return
+    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.setData('application/x-printvault-asset-id', assetId)
+    draggedProjectAssetId.current = assetId
+    setDraggingProjectAssetId(assetId)
+  }
+
+  const allowProjectFolderDrop = (event: React.DragEvent<HTMLButtonElement>, folderId: string) => {
+    if (!draggedProjectAssetId.current || projectMutationId || !activeProjectRecord?.folders.some((folder) => folder.id === folderId)) return
+    event.preventDefault()
+    event.dataTransfer.dropEffect = 'move'
+    setFolderDropTargetId(folderId)
+  }
+
+  const dropProjectAssetIntoFolder = (event: React.DragEvent<HTMLButtonElement>, folderId: string) => {
+    event.preventDefault()
+    const assetId = event.dataTransfer.getData('application/x-printvault-asset-id') || draggedProjectAssetId.current
+    clearProjectFolderDrag()
+    if (assetId) void moveProjectAssetToFolder(assetId, folderId)
   }
 
   const removeSelectedProject = async (projectId: string) => {
@@ -510,6 +765,72 @@ export default function App() {
     } catch { setSelectionState('error') }
   }
 
+  const submitLibraryExcludeRule = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (role !== 'admin' || !adminLibraryKey || !libraryExcludePattern.trim() || libraryExcludeBusy) return
+    setLibraryExcludeBusy(true)
+    setLibraryExcludeError(null)
+    setLibraryExcludeMessage(null)
+    try {
+      const rules = await addLibraryExcludeRule(adminLibraryKey, libraryExcludePattern.trim())
+      setLibraryExcludeRules(rules)
+      setLibraryExcludePattern('')
+      setLibraryExcludeMessage(t('admin.excludeRules.saved'))
+    } catch (error) {
+      setLibraryExcludeError(apiErrorMessage(error, t('admin.excludeRules.saveFailed')))
+    } finally {
+      setLibraryExcludeBusy(false)
+    }
+  }
+
+  const deleteLibraryExcludeRule = async (pattern: string) => {
+    if (role !== 'admin' || !adminLibraryKey || libraryExcludeBusy) return
+    setLibraryExcludeBusy(true)
+    setLibraryExcludeError(null)
+    setLibraryExcludeMessage(null)
+    try {
+      const rules = await removeLibraryExcludeRule(adminLibraryKey, pattern)
+      setLibraryExcludeRules(rules)
+      setLibraryExcludeMessage(t('admin.excludeRules.removed'))
+    } catch (error) {
+      setLibraryExcludeError(apiErrorMessage(error, t('admin.excludeRules.removeFailed')))
+    } finally {
+      setLibraryExcludeBusy(false)
+    }
+  }
+
+  const createHelperPairingCode = async () => {
+    if (helperBusy) return
+    setHelperBusy(true)
+    setHelperError(null)
+    setHelperMessage(null)
+    try {
+      const pairingCode = await issueHelperPairingCode()
+      setHelperPairingCode(pairingCode)
+      setHelperMessage(t('helper.pairingIssued'))
+    } catch (error) {
+      setHelperError(apiErrorMessage(error, t('helper.pairingFailed')))
+    } finally {
+      setHelperBusy(false)
+    }
+  }
+
+  const revokeOwnedHelperDevice = async (deviceId: string) => {
+    if (helperBusy) return
+    setHelperBusy(true)
+    setHelperError(null)
+    setHelperMessage(null)
+    try {
+      await revokeHelperDevice(deviceId)
+      setHelperDevices((current) => current.filter((device) => device.deviceId !== deviceId))
+      setHelperMessage(t('helper.revokeSuccess'))
+    } catch (error) {
+      setHelperError(apiErrorMessage(error, t('helper.revokeFailed')))
+    } finally {
+      setHelperBusy(false)
+    }
+  }
+
   const uploadDropzone = !showProjects && canUpload && uploadLibrary && <div aria-label={t('upload.dropLabel')} className={`upload-dropzone ${isDragging ? 'is-dragging' : ''}`} onClick={() => fileInput.current?.click()} onDragEnter={(event) => { event.preventDefault(); setIsDragging(true) }} onDragLeave={(event) => { event.preventDefault(); setIsDragging(false) }} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); setIsDragging(false); void handleUpload(event.dataTransfer.files) }} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); fileInput.current?.click() } }} role="button" tabIndex={0}>
     <input accept=".stl,.obj,.3mf" aria-label={t('upload.inputLabel')} className="visually-hidden" multiple onChange={(event) => void handleUpload(event.currentTarget.files ?? [])} ref={fileInput} type="file" />
     <strong>{uploading ? t('upload.uploading') : t('upload.title')}</strong><span>{t('upload.description')}</span>
@@ -568,7 +889,51 @@ export default function App() {
           <div className="library-nav">{projects.slice(0, 30).map((project) => <button className={`nav-item ${activeProject === project.id ? 'is-active' : ''}`} key={project.id} onClick={() => void chooseProject(project.id)} type="button"><span className="nav-bullet" />{project.name}<span className="nav-count">{project.assetIds.length}</span></button>)}{projects.length > 30 && <ProjectPicker assignedProjectIds={new Set()} label={t('projects.open')} onAssign={(projectId) => void chooseProject(projectId)} projects={projects} searchLabel={t('projects.search')} emptyLabel={t('projects.noMatches')} />}</div>
         </nav>
 
-        <fieldset className="appearance sidebar-footer">
+        <button aria-pressed={settingsOpen} className={`nav-item settings-nav-button ${settingsOpen ? 'is-active' : ''}`} onClick={() => { setSettingsOpen(true); setMobileSidebarOpen(false) }} type="button"><span className="nav-bullet" />{t('navigation.settings')}</button>
+
+        {settingsOpen && role === 'admin' && <section aria-label={t('admin.excludeRules.title')} className="admin-config-panel">
+          <div className="nav-section-heading"><p className="nav-label">{t('admin.excludeRules.title')}</p></div>
+          <form className="admin-config-form" onSubmit={submitLibraryExcludeRule}>
+            <label>{t('admin.excludeRules.library')}
+              <select className="select-control" disabled={libraryExcludeBusy || libraries.length === 0} onChange={(event) => { setAdminLibraryKey(event.target.value || null); setLibraryExcludeMessage(null); setLibraryExcludeError(null) }} value={adminLibraryKey ?? ''}>
+                {libraries.map((library) => <option key={library.key} value={library.key}>{library.name}</option>)}
+              </select>
+            </label>
+            <label>{t('admin.excludeRules.pattern')}
+              <input disabled={libraryExcludeBusy || !adminLibraryKey} onChange={(event) => setLibraryExcludePattern(event.target.value)} placeholder={t('admin.excludeRules.placeholder')} value={libraryExcludePattern} />
+            </label>
+            <button className="primary-button" disabled={libraryExcludeBusy || !adminLibraryKey || !libraryExcludePattern.trim()} type="submit">{t('admin.excludeRules.add')}</button>
+          </form>
+          {libraryExcludeLoading && <p role="status">{t('admin.excludeRules.loading')}</p>}
+          {libraryExcludeError && <p className="operation-message" role="alert">{libraryExcludeError}</p>}
+          {libraryExcludeMessage && <p className="operation-message" role="status">{libraryExcludeMessage}</p>}
+          {!libraryExcludeLoading && <div className="library-nav">{libraryExcludeRules.length === 0
+            ? <p className="empty-copy">{t('admin.excludeRules.empty')}</p>
+            : libraryExcludeRules.map((rule) => <div className="admin-rule-row" key={rule.pattern}><code>{rule.pattern}</code><button className="ghost-button" disabled={libraryExcludeBusy} onClick={() => void deleteLibraryExcludeRule(rule.pattern)} type="button">{t('admin.excludeRules.remove')}</button></div>)}
+          </div>}
+        </section>}
+
+        {settingsOpen && role && <section aria-label={t('helper.title')} className="admin-config-panel">
+          <div className="nav-section-heading"><p className="nav-label">{t('helper.title')}</p></div>
+          <p className="empty-copy">{t('helper.description')}</p>
+          <button className="primary-button full-width" disabled={helperBusy} onClick={() => void createHelperPairingCode()} type="button">{t('helper.issuePairingCode')}</button>
+          {helperPairingCode && <div className="admin-rule-row"><div><code>{helperPairingCode.pairingCode}</code><p>{t('helper.expiresAt', { date: formatDateTime(helperPairingCode.expiresAt) })}</p></div></div>}
+          <div className="empty-copy">
+            <p>{t('helper.registrationTitle')}</p>
+            <p>{t('helper.registrationStepOne')}</p>
+            <p>{t('helper.registrationStepTwo')}</p>
+            <p>{t('helper.registrationStepThree')}</p>
+          </div>
+          {helperError && <p role="alert">{helperError}</p>}
+          {helperMessage && <p role="status">{helperMessage}</p>}
+          <div className="library-nav">
+            {helperDevices.length === 0
+              ? <p className="empty-copy">{t('helper.noDevices')}</p>
+              : helperDevices.map((device) => <div className="admin-rule-row" key={device.deviceId}><div><strong>{device.name}</strong><p>{t('helper.deviceMeta', { id: device.deviceId, date: device.createdAt ? formatDateTime(device.createdAt) : t('helper.unknownDate') })}</p></div><button className="ghost-button" disabled={helperBusy} onClick={() => void revokeOwnedHelperDevice(device.deviceId)} type="button">{t('helper.revoke')}</button></div>)}
+          </div>
+        </section>}
+
+        {settingsOpen && <fieldset className="appearance sidebar-footer">
           <legend className="nav-label">{t('appearance.label')}</legend>
           <div className="theme-options">
             {appearanceOptions.map((option) => {
@@ -576,7 +941,7 @@ export default function App() {
               return <div className="theme-option" key={option}><input checked={preference === option} id={controlId} name="appearance" onChange={() => selectAppearance(option)} type="radio" /><label htmlFor={controlId}>{t(`appearance.${option}`)}</label></div>
             })}
           </div>
-        </fieldset>
+        </fieldset>}
       </aside>
 
       <main className="workspace">
@@ -587,18 +952,20 @@ export default function App() {
         </header>
 
         <section aria-label={t('content.title')} className="content">
-          <div className="content-header"><div>{activeProjectRecord ? <><p className="section-label">{activeProjectRecord.name}</p><div className="folder-breadcrumbs"><button onClick={() => chooseFolder(null)} type="button">{activeProjectRecord.name}</button>{folderBreadcrumbs.map((folder) => <span className="folder-breadcrumb-segment" key={folder.id}><span>/</span><button onClick={() => chooseFolder(folder.id)} type="button">{folder.name}</button></span>)}</div><h1>{currentFolder?.name ?? activeProjectRecord.name}</h1></> : <><p className="section-label">{t('content.eyebrow')}</p><h1>{t('content.title')}</h1></>}{assetState === 'ready' && <p className="result-count">{t('content.resultCount', { count: visibleAssets.length })}</p>}</div></div>
+          <div className="content-header"><div>{activeProjectRecord ? <><p className="section-label">{activeProjectRecord.name}</p><div className="folder-breadcrumbs"><button onClick={() => void chooseFolder(null)} type="button">{activeProjectRecord.name}</button>{folderBreadcrumbs.map((folder) => <span className="folder-breadcrumb-segment" key={folder.id}><span>/</span><button onClick={() => void chooseFolder(folder.id)} type="button">{folder.name}</button></span>)}</div><h1>{currentFolder?.name ?? activeProjectRecord.name}</h1></> : <><p className="section-label">{t('content.eyebrow')}</p><h1>{t('content.title')}</h1></>}{assetState === 'ready' && <p className="result-count">{t('content.resultCount', { count: assetPage.total })}</p>}</div><div aria-label={t('content.view')} className="view-toggle"><button aria-pressed={explorerPreference.view === 'grid'} className={explorerPreference.view === 'grid' ? 'is-active' : ''} onClick={() => selectExplorerView('grid')} type="button">{t('content.gridView')}</button><button aria-pressed={explorerPreference.view === 'list'} className={explorerPreference.view === 'list' ? 'is-active' : ''} onClick={() => selectExplorerView('list')} type="button">{t('content.listView')}</button></div></div>
+          {canUpload && selectedAssetIds.length > 0 && <section aria-label={t('batch.toolbar')} className="batch-toolbar"><strong>{t('batch.selected', { count: selectedAssetIds.length })}</strong><label>{t('batch.tagLabel')}<select className="select-control" disabled={batchBusy} onChange={(event) => setBatchTagKey(event.target.value)} value={batchTagKey}><option value="">{t('batch.tagPlaceholder')}</option>{tags.map((tag) => <option key={tag.key} value={tag.key}>{tag.name}</option>)}</select></label><button className="primary-button" disabled={!batchTagKey || batchBusy} onClick={() => void assignBatchTag()} type="button">{t('batch.assignTag')}</button><label>{t('batch.projectLabel')}<select className="select-control" disabled={batchBusy} onChange={(event) => setBatchProjectId(event.target.value)} value={batchProjectId}><option value="">{t('batch.projectPlaceholder')}</option>{projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label><button className="primary-button" disabled={!batchProjectId || batchBusy} onClick={() => void assignBatchProject()} type="button">{t('batch.assignProject')}</button><button className="primary-button" disabled={batchArchiveDisabled} onClick={() => void archiveBatchSelection()} type="button">{t('batch.archive')}</button><button className="ghost-button" disabled={batchBusy} onClick={() => { setSelectedAssetIds([]); setBatchMessage(null); setBatchError(null) }} type="button">{t('batch.clear')}</button></section>}
+          {(batchError || batchMessage) && <p className="operation-message" role={batchError ? 'alert' : 'status'}>{batchError ?? batchMessage}</p>}
           {!activeProject && activeLibrary === null && !showProjects && <div className="library-workbench"><section aria-label={t('projects.filter')} className="library-filters"><FilterPicker emptyLabel={t('projects.noMatches')} items={projects.map((project) => ({ id: project.id, name: project.name }))} label={t('projects.filter')} onToggle={(id) => setLibraryProjectFilters((current) => current.includes(id) ? current.filter((projectId) => projectId !== id) : [...current, id])} searchLabel={t('projects.search')} selected={libraryProjectFilters} /><FilterPicker emptyLabel={t('tags.noMatches')} items={tags.map((tag) => ({ id: tag.key, name: tag.name }))} label={t('tags.filter')} onToggle={(id) => setLibraryTagFilters((current) => current.includes(id) ? current.filter((tagKey) => tagKey !== id) : [...current, id])} searchLabel={t('tags.search')} selected={libraryTagFilters} /></section>{uploadDropzone}</div>}
 
-          {activeProject && canUpload && <section className="project-folders"><h2>{t('projects.folder')}</h2><form className="project-folder-form" onSubmit={submitProjectFolder}><label>{t('projects.folderName')}<input onChange={(event) => setFolderName(event.target.value)} required value={folderName} /></label><label>{t('projects.folderParent')}<FolderPicker folders={(projects.find((project) => project.id === activeProject)?.folders ?? [])} label={t('projects.folderRoot')} onChange={setFolderParentId} value={folderParentId} /></label><button className="primary-button" type="submit">{t('projects.folderCreate')}</button></form>{folderMessage && <p className="operation-message" role="status">{folderMessage}</p>}</section>}
+          {activeProject && canUpload && <section className="project-folders"><h2>{t('projects.folder')}</h2><form className="project-folder-form" onSubmit={submitProjectFolder}><label>{t('projects.folderName')}<input onChange={(event) => setFolderName(event.target.value)} required value={folderName} /></label><label>{t('projects.folderParent')}<FolderPicker folders={(projects.find((project) => project.id === activeProject)?.folders ?? [])} label={t('projects.folderRoot')} onChange={setFolderParentId} value={folderParentId} /></label><button className="primary-button" type="submit">{t('projects.folderCreate')}</button></form>{folderMessage && <p className="operation-message" role="status">{folderMessage}</p>}{projectMessage && <p className="operation-message" role="status">{projectMessage}</p>}</section>}
           {(activeProject || activeLibrary !== null) && uploadDropzone}
           {uploadMessage && <p className="upload-message" role="status">{uploadMessage}</p>}
           {showProjects && <div className="project-grid">{projects.map((project) => <button className="project-card" key={project.id} onClick={() => void chooseProject(project.id)} type="button"><h2>{project.name}</h2>{project.description && <p>{project.description}</p>}<span>{t('content.resultCount', { count: project.assetIds.length })}</span></button>)}</div>}
           {!showProjects && assetState === 'loading' && <p role="status">{t('content.loading')}</p>}
           {!showProjects && assetState === 'error' && <div className="content-state" role="alert"><p>{t('content.error')}</p><button className="ghost-button" onClick={loadWorkspace} type="button">{t('content.retry')}</button></div>}
-          {activeProjectRecord && childFolders.length > 0 && <div className="folder-grid">{childFolders.map((folder) => <button aria-label={folder.name} className="folder-card" key={folder.id} onClick={() => chooseFolder(folder.id)} type="button"><span aria-hidden="true" className="folder-card-icon"><FolderIcon /></span><span className="folder-card-name">{folder.name}</span></button>)}</div>}
+          {activeProjectRecord && childFolders.length > 0 && <div className="folder-grid">{childFolders.map((folder) => <button aria-label={folder.name} className={`folder-card ${folderDropTargetId === folder.id ? 'is-drop-target' : ''}`} key={folder.id} onClick={() => chooseFolder(folder.id)} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setFolderDropTargetId((current) => current === folder.id ? null : current) }} onDragOver={(event) => allowProjectFolderDrop(event, folder.id)} onDrop={(event) => dropProjectAssetIntoFolder(event, folder.id)} type="button"><span aria-hidden="true" className="folder-card-icon"><FolderIcon /></span><span className="folder-card-name">{folder.name}</span>{draggingProjectAssetId && <span className="folder-drop-hint">{t('projects.dropHere')}</span>}</button>)}</div>}
           {assetState === 'ready' && visibleAssets.length === 0 && childFolders.length === 0 && <div className="content-state"><h2>{t('content.emptyTitle')}</h2><p>{t('content.emptyDescription')}</p></div>}
-          {assetState === 'ready' && visibleAssets.length > 0 && <div aria-busy="false" className="asset-grid">{visibleAssets.map((asset) => <article className="asset-card" key={asset.id}><button aria-label={asset.filename} className="asset-card-button" onClick={() => void selectAsset(asset.id)} type="button"><div className="asset-preview"><AssetThumbnail assetId={asset.id} revision={thumbnailRevision} /></div><div className="asset-body"><h2 className="asset-name">{asset.filename}</h2><p className="asset-meta">{asset.byteSize === undefined ? t('content.assetMeta', { format: asset.format.toUpperCase(), path: asset.relativePath }) : t('content.assetMetaWithSize', { format: asset.format.toUpperCase(), path: asset.relativePath, size: t('content.fileSize', { size: byteSizeInMegabytes(asset.byteSize) }) })}</p><div className="project-badges">{projects.filter((project) => project.assetIds.includes(asset.id)).map((project) => <span className="project-badge" key={project.id}>{project.name}{project.assetFolderIds[asset.id] ? ` · ${project.folders.find((folder) => folder.id === project.assetFolderIds[asset.id])?.name ?? ''}` : ''}</span>)}</div><div className="tags">{asset.tags.map((tag) => <span className="tag" key={tag}>{tag}</span>)}</div></div></button></article>)}</div>}
+          {assetState === 'ready' && visibleAssets.length > 0 && <><div aria-busy="false" className={`asset-grid ${explorerPreference.view === 'list' ? 'is-list' : ''}`}>{visibleAssets.map((asset) => <article className={`asset-card ${draggingProjectAssetId === asset.id ? 'is-dragging' : ''}`} draggable={Boolean(canUpload && activeProjectRecord && !projectMutationId)} key={asset.id} onDragEnd={clearProjectFolderDrag} onDragStart={(event) => beginProjectFolderDrag(event, asset.id)}>{canUpload && <label className="asset-batch-select"><input aria-label={t('batch.selectAsset', { name: asset.filename })} checked={selectedAssetIds.includes(asset.id)} onChange={() => toggleAssetSelection(asset.id)} type="checkbox" /></label>}<button aria-label={asset.filename} className="asset-card-button" onClick={() => void selectAsset(asset.id)} type="button"><div className="asset-preview"><AssetThumbnail assetId={asset.id} revision={thumbnailRevision} /></div><div className="asset-body"><h2 className="asset-name">{asset.filename}</h2><p className="asset-meta">{asset.byteSize === undefined ? t('content.assetMeta', { format: asset.format.toUpperCase(), path: asset.relativePath }) : t('content.assetMetaWithSize', { format: asset.format.toUpperCase(), path: asset.relativePath, size: t('content.fileSize', { size: byteSizeInMegabytes(asset.byteSize) }) })}</p><div className="project-badges">{projects.filter((project) => project.assetIds.includes(asset.id)).map((project) => <span className="project-badge" key={project.id}>{project.name}{project.assetFolderIds[asset.id] ? ` · ${project.folders.find((folder) => folder.id === project.assetFolderIds[asset.id])?.name ?? ''}` : ''}</span>)}</div><div className="tags">{asset.tags.map((tag) => <span className="tag" key={tag}>{tag}</span>)}</div></div></button></article>)}</div>{assetPage.total > assetPage.limit && <nav aria-label={t('content.pagination')} className="asset-pagination"><button className="ghost-button" disabled={assetPage.offset === 0} onClick={() => void loadCurrentAssetPage(Math.max(0, assetPage.offset - assetPage.limit))} type="button">{t('content.previousPage')}</button><span>{t('content.page', { current: Math.floor(assetPage.offset / assetPage.limit) + 1, total: Math.ceil(assetPage.total / assetPage.limit) })}</span><button className="ghost-button" disabled={assetPage.offset + assetPage.limit >= assetPage.total} onClick={() => void loadCurrentAssetPage(assetPage.offset + assetPage.limit)} type="button">{t('content.nextPage')}</button></nav>}</>}
         </section>
       </main>
 
@@ -608,9 +975,10 @@ export default function App() {
         {selectionState === 'idle' && <div className="content-state"><h2 className="inspector-title">{t('inspector.emptyTitle')}</h2><p>{t('inspector.emptyDescription')}</p></div>}
         {selectionState === 'loading' && <p role="status">{t('inspector.loading')}</p>}
         {selectionState === 'error' && <p role="alert">{t('inspector.error')}</p>}
-        {selectedAsset && <><h2 className="inspector-title">{selectedAsset.filename}</h2><a className="primary-button full-width inspector-download" href={assetDownloadUrl(selectedAsset.id)}>{t('inspector.download')}</a><ModelViewer source={assetViewerSource(selectedAsset)} /><div className="tags">{selectedAsset.tags.map((tag) => <span className="tag" key={tag}>{tag}</span>)}</div><div className="stats"><div className="stat"><span className="stat-label">{t('inspector.format')}</span><span className="stat-value">{selectedAsset.format.toUpperCase()}</span></div><div className="stat"><span className="stat-label">{t('inspector.path')}</span><span className="stat-value">{selectedAsset.relativePath}</span></div>{selectedAsset.byteSize !== undefined && <div className="stat"><span className="stat-label">{t('inspector.size')}</span><span className="stat-value">{t('content.fileSize', { size: byteSizeInMegabytes(selectedAsset.byteSize) })}</span></div>}</div>{threeMfCore(selectedAsset).length > 0 && <section className="asset-info"><h3>{t('metadata.title')}</h3>{threeMfCore(selectedAsset).map(([key, value]) => key === 'description' ? <div className="asset-description" key={key}><strong>{key}:</strong>{humanReadableText(value).split('\n').map((paragraph) => <p key={paragraph}>{paragraph}</p>)}</div> : <p key={key}><strong>{key}:</strong> {value}</p>)}</section>}{threeMfDocuments(selectedAsset).length > 0 && <section className="asset-info"><h3>{t('metadata.instructions')}</h3>{threeMfDocuments(selectedAsset).map((document) => <details key={document.label}><summary>{document.label}</summary>{document.text ? <pre>{humanReadableText(document.text)}</pre> : <p>{t('metadata.binaryDocument')}</p>}</details>)}</section>}<section className="asset-management">{canUpload && <><div aria-label={t('projects.assign')} className="project-picker"><span>{t('projects.assign')}</span><ProjectPicker assignedProjectIds={new Set(projects.filter((project) => project.assetIds.includes(selectedAsset.id)).map((project) => project.id))} disabled={projectMutationId !== null} emptyLabel={t('projects.noMatches')} label={t('projects.assign')} onAssign={(projectId) => void assignSelectedProject(projectId)} projects={projects} searchLabel={t('projects.search')} /><div className="assigned-projects">{projects.filter((project) => project.assetIds.includes(selectedAsset.id)).map((project) => { const folderId = project.assetFolderIds[selectedAsset.id] ?? null; return <div className="assigned-project" key={project.id}><button aria-expanded={folderProjectId === project.id} aria-label={`${t('projects.folder')} ${project.name}`} className="assigned-project-name" onClick={() => setFolderProjectId((current) => current === project.id ? null : project.id)} type="button">{project.name}</button><button aria-label={`${project.name} ${t('projects.remove')}`} className="project-remove" disabled={projectMutationId === project.id} onClick={() => void removeSelectedProject(project.id)} type="button">×</button>{folderProjectId === project.id && <FolderPicker disabled={projectMutationId === project.id} folders={project.folders} label={t('projects.folderRoot')} onChange={(nextFolderId) => void assignSelectedProject(project.id, nextFolderId)} value={folderId} />}</div>})}</div>{projectMessage && <p className="operation-message" role="status">{projectMessage}</p>}</div><div className="tag-management"><div className="management-heading"><h3>{t('tags.create')}</h3><button className="ghost-button" onClick={() => setTagFormOpen(true)} type="button">{t('tags.create')}</button></div>{tags.map((tag) => <label className="tag-option" key={tag.key}><input checked={selectedTagKeys.includes(tag.key)} onChange={(event) => setSelectedTagKeys((current) => event.target.checked ? [...new Set([...current, tag.key])] : current.filter((key) => key !== tag.key))} type="checkbox" />{tag.name}</label>)}{tags.length > 0 && <button className="ghost-button full-width" onClick={() => void saveSelectedTags()} type="button">{t('tags.save')}</button>}</div></>}</section>{canUpload && <section className="thumbnail-upload"><h3>{t('thumbnail.upload')}</h3><input accept="image/png,image/jpeg,image/webp" aria-label={t('thumbnail.upload')} className="visually-hidden" onChange={(event) => void uploadSelectedThumbnail(event.currentTarget.files)} ref={thumbnailInput} type="file" /><button className="ghost-button full-width" onClick={() => thumbnailInput.current?.click()} type="button">{t('thumbnail.upload')}</button></section>}{tagFormOpen && <form aria-label={t('tags.create')} className="inline-form" onSubmit={submitTag}><label>{t('tags.key')}<input onChange={(event) => setTagKey(event.target.value)} pattern="[a-z0-9][a-z0-9-]*" required value={tagKey} /></label><label>{t('tags.name')}<input onChange={(event) => setTagName(event.target.value)} required value={tagName} /></label><div className="form-actions"><button className="ghost-button" onClick={() => setTagFormOpen(false)} type="button">{t('actions.cancel')}</button><button className="primary-button" type="submit">{t('actions.save')}</button></div></form>}{canUpload && !selectedAsset.archived && <button className="ghost-button full-width" onClick={() => void archiveSelectedAsset()} type="button">{t('actions.archive')}</button>}{canUpload && selectedAsset.archived && <button className="ghost-button full-width" onClick={() => void restoreSelectedAsset()} type="button">{t('actions.restore')}</button>}{role === 'admin' && <button className="danger-button full-width" onClick={() => void deleteSelectedAsset()} type="button">{t('actions.delete')}</button>}</>}
+        {selectedAsset && <><h2 className="inspector-title">{selectedAsset.filename}</h2><a className="primary-button full-width inspector-download" href={assetDownloadUrl(selectedAsset.id)}>{t('inspector.download')}</a><ModelViewer buildColors={threeMfBuildColors(selectedAsset)} source={assetViewerSource(selectedAsset)} /><div className="tags">{selectedAsset.tags.map((tag) => <span className="tag" key={tag}>{tag}</span>)}</div><div className="stats"><div className="stat"><span className="stat-label">{t('inspector.format')}</span><span className="stat-value">{selectedAsset.format.toUpperCase()}</span></div><div className="stat"><span className="stat-label">{t('inspector.path')}</span><span className="stat-value">{selectedAsset.relativePath}</span></div>{selectedAsset.byteSize !== undefined && <div className="stat"><span className="stat-label">{t('inspector.size')}</span><span className="stat-value">{t('content.fileSize', { size: byteSizeInMegabytes(selectedAsset.byteSize) })}</span></div>}</div>{threeMfCore(selectedAsset).length > 0 && <section className="asset-info"><h3>{t('metadata.title')}</h3>{threeMfCore(selectedAsset).map(([key, value]) => key === 'description' ? <div className="asset-description" key={key}><strong>{key}:</strong>{humanReadableText(value).split('\n').map((paragraph) => <p key={paragraph}>{paragraph}</p>)}</div> : <p key={key}><strong>{key}:</strong> {value}</p>)}</section>}{threeMfDocuments(selectedAsset).length > 0 && <section className="asset-info"><h3>{t('metadata.instructions')}</h3>{threeMfDocuments(selectedAsset).map((document) => <details key={document.label}><summary>{document.label}</summary>{document.text ? <pre>{humanReadableText(document.text)}</pre> : <p>{t('metadata.binaryDocument')}</p>}</details>)}</section>}<section className="asset-management">{canUpload && <><div aria-label={t('projects.assign')} className="project-picker"><span>{t('projects.assign')}</span><ProjectPicker assignedProjectIds={new Set(projects.filter((project) => project.assetIds.includes(selectedAsset.id)).map((project) => project.id))} disabled={projectMutationId !== null} emptyLabel={t('projects.noMatches')} label={t('projects.assign')} onAssign={(projectId) => void assignSelectedProject(projectId)} projects={projects} searchLabel={t('projects.search')} /><div className="assigned-projects">{projects.filter((project) => project.assetIds.includes(selectedAsset.id)).map((project) => { const folderId = project.assetFolderIds[selectedAsset.id] ?? null; return <div className="assigned-project" key={project.id}><button aria-expanded={folderProjectId === project.id} aria-label={`${t('projects.folder')} ${project.name}`} className="assigned-project-name" onClick={() => setFolderProjectId((current) => current === project.id ? null : project.id)} type="button">{project.name}</button><button aria-label={`${project.name} ${t('projects.remove')}`} className="project-remove" disabled={projectMutationId === project.id} onClick={() => void removeSelectedProject(project.id)} type="button">×</button>{folderProjectId === project.id && <FolderPicker disabled={projectMutationId === project.id} folders={project.folders} label={t('projects.folderRoot')} onChange={(nextFolderId) => void assignSelectedProject(project.id, nextFolderId)} value={folderId} />}</div>})}</div>{projectMessage && <p className="operation-message" role="status">{projectMessage}</p>}</div><div className="tag-management"><div className="management-heading"><h3>{t('tags.create')}</h3><button className="ghost-button" onClick={() => setTagFormOpen(true)} type="button">{t('tags.create')}</button></div>{tags.map((tag) => <label className="tag-option" key={tag.key}><input checked={selectedTagKeys.includes(tag.key)} onChange={(event) => setSelectedTagKeys((current) => event.target.checked ? [...new Set([...current, tag.key])] : current.filter((key) => key !== tag.key))} type="checkbox" />{tag.name}</label>)}{tags.length > 0 && <button className="ghost-button full-width" onClick={() => void saveSelectedTags()} type="button">{t('tags.save')}</button>}</div></>}</section>{canUpload && <section className="thumbnail-upload"><h3>{t('thumbnail.upload')}</h3><input accept="image/png,image/jpeg,image/webp" aria-label={t('thumbnail.upload')} className="visually-hidden" onChange={(event) => void uploadSelectedThumbnail(event.currentTarget.files)} ref={thumbnailInput} type="file" /><button className="ghost-button full-width" onClick={() => thumbnailInput.current?.click()} type="button">{t('thumbnail.upload')}</button></section>}{tagFormOpen && <form aria-label={t('tags.create')} className="inline-form" onSubmit={submitTag}><label>{t('tags.key')}<input onChange={(event) => setTagKey(event.target.value)} pattern="[a-z0-9][a-z0-9-]*" required value={tagKey} /></label><label>{t('tags.name')}<input onChange={(event) => setTagName(event.target.value)} required value={tagName} /></label><div className="form-actions"><button className="ghost-button" onClick={() => setTagFormOpen(false)} type="button">{t('actions.cancel')}</button><button className="primary-button" type="submit">{t('actions.save')}</button></div></form>}{canUpload && !selectedAsset.archived && <button className="ghost-button full-width" onClick={() => void archiveSelectedAsset()} type="button">{t('actions.archive')}</button>}{canUpload && selectedAsset.archived && <button className="ghost-button full-width" onClick={() => void restoreSelectedAsset()} type="button">{t('actions.restore')}</button>}{role === 'admin' && <button className="danger-button full-width" onClick={() => void deleteSelectedAsset()} type="button">{t('actions.delete')}</button>}</>}
       </aside>
       {projectFormOpen && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setProjectFormOpen(false) }}><form aria-labelledby="project-create-title" aria-modal="true" className="project-modal" onKeyDown={(event) => { if (event.key === 'Escape') setProjectFormOpen(false) }} onSubmit={submitProject} role="dialog"><h2 id="project-create-title">{t('projects.create')}</h2><label>{t('projects.name')}<input autoFocus onChange={(event) => setProjectName(event.target.value)} required value={projectName} /></label><label>{t('projects.description')}<textarea onChange={(event) => setProjectDescription(event.target.value)} value={projectDescription} /></label><div className="form-actions"><button className="ghost-button" onClick={() => setProjectFormOpen(false)} type="button">{t('actions.cancel')}</button><button className="primary-button" type="submit">{t('actions.save')}</button></div></form></div>}
+      {pendingDuplicateUploads[0] && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !duplicateDecisionBusy) setPendingDuplicateUploads([]) }}><section aria-labelledby="upload-duplicate-title" aria-modal="true" className="project-modal" onKeyDown={(event) => { if (event.key === 'Escape' && !duplicateDecisionBusy) setPendingDuplicateUploads([]) }} role="dialog"><h2 id="upload-duplicate-title">{t('upload.duplicateTitle')}</h2><p>{t('upload.duplicateDescription', { filename: pendingDuplicateUploads[0].file.name })}</p>{pendingDuplicateUploads.length > 1 && <p>{t('upload.partial', { uploaded: 0, rejected: pendingDuplicateUploads.length - 1 })}</p>}<div className="form-actions"><button className="ghost-button" disabled={duplicateDecisionBusy} onClick={() => setPendingDuplicateUploads([])} type="button">{t('actions.cancel')}</button><button className="ghost-button" disabled={duplicateDecisionBusy} onClick={() => void decideDuplicateUpload('rename')} type="button">{t('upload.rename')}</button><button className="primary-button" disabled={duplicateDecisionBusy} onClick={() => void decideDuplicateUpload('overwrite')} type="button">{t('upload.overwrite')}</button></div></section></div>}
     </div>
   )
 }

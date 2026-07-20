@@ -23,6 +23,38 @@ CORE_MODEL = """<?xml version=\"1.0\" encoding=\"utf-8\"?>
 """
 
 
+SLICER_MODEL = """<?xml version=\"1.0\" encoding=\"utf-8\"?>
+<model xmlns=\"http://schemas.microsoft.com/3dmanufacturing/core/2015/02\">
+  <resources>
+    <object id=\"1\" type=\"model\"><mesh /></object>
+    <object id=\"2\" type=\"model\"><mesh /></object>
+  </resources>
+  <build>
+    <item objectid=\"2\" />
+    <item objectid=\"1\" />
+  </build>
+</model>
+"""
+
+
+SLICER_MODEL_SETTINGS = """<?xml version=\"1.0\" encoding=\"utf-8\"?>
+<config>
+  <object id=\"1\"><metadata key=\"extruder\" value=\"1\" /></object>
+  <object id=\"2\"><metadata key=\"extruder\" value=\"2\" /></object>
+</config>
+"""
+
+
+SLICER_MODEL_SETTINGS_WITH_ASSEMBLY = """<?xml version=\"1.0\" encoding=\"utf-8\"?>
+<config>
+  <object id=\"1\"><metadata key=\"extruder\" value=\"1\" /></object>
+  <object id=\"2\"><metadata key=\"extruder\" value=\"2\" /></object>
+  <assemble_item object_id=\"1\" transform=\"1 0 0 0 1 0 0 0 1 10 20 30\" />
+  <assemble_item object_id=\"2\" transform=\"1 0 0 0 1 0 0 0 1 40 50 60\" />
+</config>
+"""
+
+
 def three_mf(entries: dict[str, bytes], *, symlink_name: str | None = None) -> bytes:
     archive = io.BytesIO()
     with zipfile.ZipFile(archive, "w") as bundle:
@@ -78,6 +110,89 @@ def test_lists_instruction_pdf_without_returning_binary_bytes() -> None:
     assert result.documents[0].byte_size == len(pdf)
     assert result.documents[0].text_content is None
     assert pdf.decode("latin-1") not in repr(result)
+
+
+def test_extracts_bambu_slicer_filament_colours_in_build_order() -> None:
+    result = extract_three_mf_metadata(
+        three_mf(
+            {
+                "3D/3dmodel.model": SLICER_MODEL.encode("utf-8"),
+                "Metadata/project_settings.config": b'{"filament_colour":["#ff0000","#00aa00"]}',
+                "Metadata/model_settings.config": SLICER_MODEL_SETTINGS.encode("utf-8"),
+            }
+        )
+    )
+
+    assert result.build_colors == ("#00aa00", "#ff0000")
+
+
+def test_extracts_bambu_assembly_transforms_in_core_build_order() -> None:
+    result = extract_three_mf_metadata(
+        three_mf(
+            {
+                "3D/3dmodel.model": SLICER_MODEL.encode("utf-8"),
+                "Metadata/project_settings.config": b'{"filament_colour":["#ff0000","#00aa00"]}',
+                "Metadata/model_settings.config": SLICER_MODEL_SETTINGS_WITH_ASSEMBLY.encode("utf-8"),
+            }
+        )
+    )
+
+    assert result.build_transforms == (
+        (1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 40.0, 50.0, 60.0),
+        (1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 10.0, 20.0, 30.0),
+    )
+
+
+def test_extracts_bambu_colours_when_core_model_exceeds_metadata_limit() -> None:
+    padded_model = SLICER_MODEL.replace("<resources>", f"<!-- {'x' * 600_000} --><resources>")
+
+    result = extract_three_mf_metadata(
+        three_mf(
+            {
+                "3D/3dmodel.model": padded_model.encode("utf-8"),
+                "Metadata/project_settings.config": b'{"filament_colour":["#ff0000","#00aa00"]}',
+                "Metadata/model_settings.config": SLICER_MODEL_SETTINGS.encode("utf-8"),
+            }
+        )
+    )
+
+    assert result.build_colors == ("#00aa00", "#ff0000")
+
+
+def test_extracts_bambu_colours_when_ignored_members_exceed_total_read_limit() -> None:
+    result = extract_three_mf_metadata(
+        three_mf(
+            {
+                "3D/3dmodel.model": SLICER_MODEL.encode("utf-8"),
+                "Metadata/project_settings.config": b'{"filament_colour":["#ff0000","#00aa00"]}',
+                "Metadata/model_settings.config": SLICER_MODEL_SETTINGS.encode("utf-8"),
+                "3D/objects/ignored.model": b"unread mesh payload" * 200,
+            }
+        ),
+        limits=ArchiveLimits(
+            max_archive_bytes=10_000,
+            max_member_bytes=10_000,
+            max_total_uncompressed_bytes=2_000,
+        ),
+    )
+
+    assert result.build_colors == ("#00aa00", "#ff0000")
+
+
+def test_extracts_bambu_colours_when_model_settings_exceed_core_metadata_limit() -> None:
+    padded_settings = SLICER_MODEL_SETTINGS.replace("<config>", f"<!-- {'x' * 600_000} --><config>")
+
+    result = extract_three_mf_metadata(
+        three_mf(
+            {
+                "3D/3dmodel.model": SLICER_MODEL.encode("utf-8"),
+                "Metadata/project_settings.config": b'{"filament_colour":["#ff0000","#00aa00"]}',
+                "Metadata/model_settings.config": padded_settings.encode("utf-8"),
+            }
+        )
+    )
+
+    assert result.build_colors == ("#00aa00", "#ff0000")
 
 
 def test_does_not_read_text_documents_over_the_configured_content_bound() -> None:

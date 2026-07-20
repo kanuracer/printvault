@@ -17,7 +17,8 @@
   },
   "navigation": {
     "libraries": "Bibliotheken",
-    "allAssets": "Alle Modelle"
+    "allAssets": "Alle Modelle",
+    "settings": "Einstellungen"
   },
   "topbar": {
     "searchLabel": "Modelle durchsuchen",
@@ -37,7 +38,34 @@
     "retry": "Erneut versuchen",
     "assetMeta": "{{format}} · {{path}}",
     "assetMetaWithSize": "{{format}} · {{path}} · {{size}}",
-    "fileSize": "{{size}} MB"
+    "fileSize": "{{size}} MB",
+    "pagination": "Seitennavigation",
+    "previousPage": "Zurück",
+    "nextPage": "Weiter",
+    "page": "Seite {{current}} von {{total}}",
+    "view": "Darstellung der Modelle",
+    "gridView": "Rasteransicht",
+    "listView": "Listenansicht"
+  },
+  "batch": {
+    "toolbar": "Mehrfachauswahl",
+    "selectAsset": "Modell auswählen: {{name}}",
+    "selected": "{{count}} ausgewählt",
+    "tagLabel": "Tag für Auswahl",
+    "tagPlaceholder": "Tag auswählen",
+    "assignTag": "Tag zuweisen",
+    "assignTagFailed": "Tag-Zuweisung fehlgeschlagen.",
+    "projectLabel": "Projekt für Auswahl",
+    "projectPlaceholder": "Projekt auswählen",
+    "assignProject": "Projekt zuweisen",
+    "assignProjectFailed": "Projektzuweisung fehlgeschlagen.",
+    "archive": "Auswahl archivieren",
+    "archiveConfirm_one": "{{count}} ausgewähltes Modell ins Archiv verschieben?",
+    "archiveConfirm_other": "{{count}} ausgewählte Modelle ins Archiv verschieben?",
+    "archiveSuccess_one": "{{count}} Modell archiviert.",
+    "archiveSuccess_other": "{{count}} Modelle archiviert.",
+    "archiveFailed": "Archivieren der Auswahl fehlgeschlagen.",
+    "clear": "Auswahl aufheben"
   },
   "upload": {
     "title": "Dateien hochladen",
@@ -48,7 +76,11 @@
     "success_one": "{{count}} Datei erfolgreich hochgeladen",
     "success_other": "{{count}} Dateien erfolgreich hochgeladen",
     "partial": "{{uploaded}} hochgeladen, {{rejected}} abgelehnt",
-    "error": "Upload fehlgeschlagen. Bitte erneut versuchen."
+    "error": "Upload fehlgeschlagen. Bitte erneut versuchen.",
+    "duplicateTitle": "Duplikat erkannt",
+    "duplicateDescription": "„{{filename}}“ ist bereits vorhanden. Was soll passieren?",
+    "overwrite": "Bestehendes Modell überschreiben",
+    "rename": "Name automatisch anpassen"
   },
   "inspector": {
     "label": "Details",
@@ -75,7 +107,10 @@
     "resetView": "Ansicht zurücksetzen",
     "wireframe": "Drahtgitter",
     "grid": "Raster",
-    "axes": "Achsen"
+    "axes": "Achsen",
+    "expand": "Vergrößern",
+    "expandedTitle": "Große Modellansicht",
+    "closeExpanded": "Ansicht schließen"
   },
   "metadata": {
     "title": "3MF-Informationen",
@@ -84,6 +119,41 @@
   },
   "thumbnail": {
     "upload": "Eigenes Vorschaubild"
+  },
+  "helper": {
+    "title": "Helper",
+    "description": "Kopple deinen lokalen PrintVault Helper, um Downloads direkt im Slicer zu öffnen.",
+    "issuePairingCode": "Kopplungscode erzeugen",
+    "pairingIssued": "Kopplungscode erzeugt.",
+    "pairingFailed": "Kopplungscode konnte nicht erzeugt werden.",
+    "expiresAt": "Gültig bis: {{date}}",
+    "registrationTitle": "Registrierung",
+    "registrationStepOne": "1. Öffne den PrintVault Helper auf deinem Computer.",
+    "registrationStepTwo": "2. Gib den Kopplungscode dort vor Ablauf ein.",
+    "registrationStepThree": "3. Der Helper speichert die Geräteanmeldung lokal. PrintVault zeigt sie danach nicht erneut an.",
+    "noDevices": "Noch keine gekoppelten Geräte.",
+    "deviceMeta": "ID: {{id}} · Hinzugefügt: {{date}}",
+    "unknownDate": "unbekannt",
+    "revoke": "Entziehen",
+    "revokeSuccess": "Gerät entzogen.",
+    "revokeFailed": "Gerät konnte nicht entzogen werden."
+  },
+  "admin": {
+    "excludeRules": {
+      "title": "Bibliothek-Ausschlussregeln",
+      "library": "Bibliothek",
+      "pattern": "Muster",
+      "placeholder": "z. B. prototypes/**/*.stl",
+      "add": "Muster hinzufügen",
+      "remove": "Entfernen",
+      "loading": "Regeln werden geladen",
+      "empty": "Keine benutzerdefinierten Ausschlussregeln für diese Bibliothek.",
+      "saved": "Ausschlussregel gespeichert.",
+      "removed": "Ausschlussregel entfernt.",
+      "loadFailed": "Ausschlussregeln konnten nicht geladen werden.",
+      "saveFailed": "Ausschlussregel konnte nicht gespeichert werden.",
+      "removeFailed": "Ausschlussregel konnte nicht entfernt werden."
+    }
   },
 
   "projects": {
@@ -108,7 +178,10 @@
     "folderName": "Neuer Ordner",
     "folderParent": "Übergeordneter Ordner",
     "folderCreated": "Ordner erstellt.",
-    "folderCreateFailed": "Ordner konnte nicht erstellt werden."
+    "folderCreateFailed": "Ordner konnte nicht erstellt werden.",
+    "dropHere": "Hier ablegen",
+    "moved": "„{{asset}}“ wurde nach „{{folder}}“ verschoben.",
+    "moveFailed": "Modell konnte nicht in den Ordner verschoben werden."
   },
   "tags": {
     "create": "Tag erstellen",

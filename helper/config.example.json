@@ -1,6 +1,12 @@
 {
   "version": 1,
-  "origin": "https://printvault.kanuracer.de",
+  "origin": "https://printvault.example.com",
+  "user_id": "user-123",
+  "device_id": "device-456",
+  "auth": {
+    "type": "bearer_env",
+    "token_env": "PRINTVAULT_HELPER_TOKEN"
+  },
   "profiles": [
     {
       "id": "orca",

@@ -38,15 +38,6 @@ def environment_mapping(environment: Any, service_name: str, errors: list[str]) 
     return {}
 
 
-def service_network_names(networks: Any, service_name: str, errors: list[str]) -> set[str]:
-    if isinstance(networks, list):
-        return {str(network) for network in networks}
-    if isinstance(networks, dict):
-        return {str(network) for network in networks}
-    errors.append(f"service {service_name}: must explicitly join only web_net")
-    return set()
-
-
 def is_sensitive_database_or_oidc_key(key: str) -> bool:
     normalized = key.upper()
     database_secret = (
@@ -70,27 +61,23 @@ def validate_compose(document: Any) -> list[str]:
     if "printvault" not in services or not isinstance(services.get("printvault"), dict):
         errors.append("Compose document must declare a printvault service")
 
-    networks = document.get("networks")
-    if not isinstance(networks, dict) or not isinstance(networks.get("web_net"), dict):
-        errors.append("networks.web_net must be declared")
-    elif networks["web_net"].get("external") is not True:
-        errors.append("networks.web_net must set external: true")
-
     for service_name, service in services.items():
         if not isinstance(service, dict):
             errors.append(f"service {service_name}: definition must be a mapping")
             continue
-        if "ports" in service:
-            errors.append(f"service {service_name}: ports must not be declared")
         if "expose" in service:
             errors.append(f"service {service_name}: expose must not be declared")
-        network_names = service_network_names(service.get("networks"), service_name, errors)
-        if network_names != {"web_net"}:
-            errors.append(f"service {service_name}: must join only web_net")
+        ports = service.get("ports", [])
+        if not isinstance(ports, list):
+            errors.append(f"service {service_name}: ports must be a list")
+        elif any(not isinstance(port, str) or not port.startswith("127.0.0.1:") for port in ports):
+            errors.append(f"service {service_name}: published ports must bind loopback only")
 
         environment = environment_mapping(service.get("environment"), service_name, errors)
         if service_name != "printvault":
             continue
+        if service.get("env_file") != [".env"]:
+            errors.append("service printvault: env_file must contain only .env")
         for variable in REQUIRED_FILE_ENVIRONMENTS:
             value = environment.get(variable)
             if not value:

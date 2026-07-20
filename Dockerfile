@@ -26,6 +26,15 @@ RUN mkdir -p /workspace/backend && \
     fi
 
 FROM python:3.12-slim AS runtime
+ARG VERSION=0.1.0
+ARG REVISION=unknown
+ARG SOURCE_URL=https://github.com/kanuracer/printvault
+LABEL org.opencontainers.image.title="PrintVault" \
+      org.opencontainers.image.description="Self-hosted organizer for 3D-print files" \
+      org.opencontainers.image.source="${SOURCE_URL}" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${REVISION}" \
+      org.opencontainers.image.licenses="AGPL-3.0-only"
 ENV PATH="/opt/venv/bin:${PATH}" \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1

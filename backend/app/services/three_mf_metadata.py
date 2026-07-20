@@ -11,6 +11,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from io import BytesIO
+import json
+import math
 from pathlib import Path
 from types import MappingProxyType
 from typing import BinaryIO, TypeAlias
@@ -27,7 +29,7 @@ class ThreeMfExtractionError(ValueError):
 
 @dataclass(frozen=True, slots=True)
 class ArchiveLimits:
-    """Hard limits applied before archive members are opened."""
+    """Hard archive-validation and bounded-extraction limits."""
 
     max_archive_bytes: int = 16 * 1024 * 1024
     max_members: int = 512
@@ -35,6 +37,7 @@ class ArchiveLimits:
     max_total_uncompressed_bytes: int = 32 * 1024 * 1024
     max_text_document_bytes: int = 512 * 1024
     max_metadata_xml_bytes: int = 512 * 1024
+    max_slicer_model_settings_bytes: int = 1 * 1024 * 1024
     max_compression_ratio: int = 100
 
 
@@ -57,6 +60,20 @@ class ThreeMfExtractionResult:
 
     metadata: Mapping[str, str]
     documents: tuple[ThreeMfDocument, ...]
+    build_colors: tuple[str | None, ...] = ()
+    build_transforms: tuple[tuple[float, ...], ...] = ()
+
+
+@dataclass(slots=True)
+class _ExtractionReadBudget:
+    """Tracks bytes actually decompressed by this metadata-only reader."""
+
+    remaining: int
+
+    def consume(self, size: int) -> None:
+        if size > self.remaining:
+            raise ThreeMfExtractionError("archive exceeds extraction size limit")
+        self.remaining -= size
 
 
 ArchiveSource: TypeAlias = bytes | bytearray | memoryview | str | Path | BinaryIO
@@ -85,6 +102,9 @@ _DOCUMENT_TYPES = {**_TEXT_DOCUMENT_TYPES, ".pdf": "application/pdf"}
 _INSTRUCTION_WORDS = ("instruction", "readme", "manual", "guide", "assembly")
 _DRIVE_PREFIX = re.compile(r"^[A-Za-z]:")
 _XML_ENTITY_MARKERS = (b"<!doctype", b"<!entity")
+_HEX_COLOR = re.compile(r"^#[0-9a-fA-F]{6}(?:[0-9a-fA-F]{2})?$")
+_SLICER_PROJECT_SETTINGS = "Metadata/project_settings.config"
+_SLICER_MODEL_SETTINGS = "Metadata/model_settings.config"
 
 
 def extract_three_mf_metadata(
@@ -106,8 +126,10 @@ def extract_three_mf_metadata(
         with zipfile.ZipFile(BytesIO(package_bytes)) as archive:
             members = archive.infolist()
             _validate_members(members, limits)
-            metadata = _extract_metadata(archive, members, limits)
-            documents = _extract_documents(archive, members, limits)
+            budget = _ExtractionReadBudget(limits.max_total_uncompressed_bytes)
+            metadata = _extract_metadata(archive, members, limits, budget)
+            documents = _extract_documents(archive, members, limits, budget)
+            build_colors, build_transforms = _extract_slicer_build_presentation(archive, members, limits, budget)
     except ThreeMfExtractionError:
         raise
     except (OSError, RuntimeError, zipfile.BadZipFile, zipfile.LargeZipFile) as error:
@@ -116,6 +138,8 @@ def extract_three_mf_metadata(
     return ThreeMfExtractionResult(
         metadata=MappingProxyType(metadata),
         documents=tuple(documents),
+        build_colors=build_colors,
+        build_transforms=build_transforms,
     )
 
 
@@ -129,6 +153,7 @@ def _validate_limits(limits: ArchiveLimits) -> None:
             limits.max_total_uncompressed_bytes,
             limits.max_text_document_bytes,
             limits.max_metadata_xml_bytes,
+            limits.max_slicer_model_settings_bytes,
             limits.max_compression_ratio,
         )
     ):
@@ -169,7 +194,6 @@ def _validate_members(members: list[zipfile.ZipInfo], limits: ArchiveLimits) -> 
     if len(members) > limits.max_members:
         raise ThreeMfExtractionError("too many archive members")
 
-    total_uncompressed = 0
     seen_names: set[str] = set()
     for member in members:
         raw_name = member.orig_filename
@@ -182,9 +206,6 @@ def _validate_members(members: list[zipfile.ZipInfo], limits: ArchiveLimits) -> 
             raise ThreeMfExtractionError("encrypted archive members are unsupported")
         if member.file_size > limits.max_member_bytes:
             raise ThreeMfExtractionError("archive member exceeds size limit")
-        total_uncompressed += member.file_size
-        if total_uncompressed > limits.max_total_uncompressed_bytes:
-            raise ThreeMfExtractionError("archive exceeds uncompressed size limit")
         if member.file_size > max(1, member.compress_size) * limits.max_compression_ratio:
             raise ThreeMfExtractionError("archive member compression ratio exceeds limit")
 
@@ -214,33 +235,32 @@ def _extract_metadata(
     archive: zipfile.ZipFile,
     members: list[zipfile.ZipInfo],
     limits: ArchiveLimits,
+    budget: _ExtractionReadBudget,
 ) -> dict[str, str]:
     metadata: dict[str, str] = {}
-    for member in members:
-        if member.is_dir() or not member.filename.startswith("3D/") or not member.filename.lower().endswith(".model"):
+    core_model = next((member for member in members if member.filename == "3D/3dmodel.model"), None)
+    if core_model is None or core_model.file_size > limits.max_metadata_xml_bytes:
+        return metadata
+    xml_bytes = _read_member(archive, core_model, limits.max_metadata_xml_bytes, budget)
+    lowered = xml_bytes.lower()
+    if any(marker in lowered for marker in _XML_ENTITY_MARKERS):
+        raise ThreeMfExtractionError("unsafe XML in 3MF metadata")
+    try:
+        root = ElementTree.fromstring(xml_bytes)
+    except ElementTree.ParseError as error:
+        raise ThreeMfExtractionError("invalid 3MF metadata XML") from error
+    if _local_name(root.tag) != "model":
+        return metadata
+    for child in root:
+        if _local_name(child.tag) != "metadata":
             continue
-        if member.file_size > limits.max_metadata_xml_bytes:
+        raw_name = child.attrib.get("name", "")
+        name = raw_name.strip().casefold()
+        if name not in _METADATA_NAMES or name in metadata:
             continue
-        xml_bytes = _read_member(archive, member, limits.max_metadata_xml_bytes)
-        lowered = xml_bytes.lower()
-        if any(marker in lowered for marker in _XML_ENTITY_MARKERS):
-            raise ThreeMfExtractionError("unsafe XML in 3MF metadata")
-        try:
-            root = ElementTree.fromstring(xml_bytes)
-        except ElementTree.ParseError as error:
-            raise ThreeMfExtractionError("invalid 3MF metadata XML") from error
-        if _local_name(root.tag) != "model":
-            continue
-        for child in root:
-            if _local_name(child.tag) != "metadata":
-                continue
-            raw_name = child.attrib.get("name", "")
-            name = raw_name.strip().casefold()
-            if name not in _METADATA_NAMES or name in metadata:
-                continue
-            value = "".join(child.itertext()).strip()
-            if value and len(value) <= 8_192:
-                metadata[name] = value
+        value = "".join(child.itertext()).strip()
+        if value and len(value) <= 8_192:
+            metadata[name] = value
     return metadata
 
 
@@ -248,6 +268,7 @@ def _extract_documents(
     archive: zipfile.ZipFile,
     members: list[zipfile.ZipInfo],
     limits: ArchiveLimits,
+    budget: _ExtractionReadBudget,
 ) -> list[ThreeMfDocument]:
     documents: list[ThreeMfDocument] = []
     used_labels: set[str] = set()
@@ -262,7 +283,7 @@ def _extract_documents(
         label = _unique_label(_safe_display_label(filename), used_labels)
         text_content: str | None = None
         if suffix in _TEXT_DOCUMENT_TYPES and member.file_size <= limits.max_text_document_bytes:
-            text_content = _decode_utf8_text(_read_member(archive, member, limits.max_text_document_bytes))
+            text_content = _decode_utf8_text(_read_member(archive, member, limits.max_text_document_bytes, budget))
         documents.append(
             ThreeMfDocument(
                 display_label=label,
@@ -274,7 +295,140 @@ def _extract_documents(
     return documents
 
 
-def _read_member(archive: zipfile.ZipFile, member: zipfile.ZipInfo, maximum: int) -> bytes:
+def _extract_slicer_build_presentation(
+    archive: zipfile.ZipFile,
+    members: list[zipfile.ZipInfo],
+    limits: ArchiveLimits,
+    budget: _ExtractionReadBudget,
+) -> tuple[tuple[str | None, ...], tuple[tuple[float, ...], ...]]:
+    """Read Bambu/Orca slicer colors without exposing project configuration.
+
+    Their project 3MFs store extruder colors outside core 3MF materials.  The
+    returned tuple follows the core model's ``build/item`` order, matching the
+    root children created by Three.js' ``ThreeMFLoader``.
+    """
+    member_by_name = {member.filename: member for member in members if not member.is_dir()}
+    project_settings = member_by_name.get(_SLICER_PROJECT_SETTINGS)
+    model_settings = member_by_name.get(_SLICER_MODEL_SETTINGS)
+    core_model = member_by_name.get("3D/3dmodel.model")
+    if project_settings is None or model_settings is None or core_model is None:
+        return (), ()
+    if (
+        project_settings.file_size > limits.max_metadata_xml_bytes
+        or model_settings.file_size > limits.max_slicer_model_settings_bytes
+    ):
+        return (), ()
+    if core_model.file_size > limits.max_member_bytes:
+        return (), ()
+
+    try:
+        project_data = json.loads(_read_member(archive, project_settings, limits.max_metadata_xml_bytes, budget))
+    except (TypeError, ValueError, UnicodeDecodeError):
+        return (), ()
+    if not isinstance(project_data, dict):
+        return (), ()
+    raw_colors = project_data.get("filament_colour")
+    if not isinstance(raw_colors, list):
+        return (), ()
+    colors = tuple(value if isinstance(value, str) and _HEX_COLOR.fullmatch(value) else None for value in raw_colors)
+    if not any(colors):
+        return (), ()
+
+    settings_root = _parse_safe_xml(
+        _read_member(archive, model_settings, limits.max_slicer_model_settings_bytes, budget)
+    )
+    model_root = _parse_safe_xml(_read_member(archive, core_model, limits.max_member_bytes, budget))
+    if settings_root is None or model_root is None or _local_name(model_root.tag) != "model":
+        return (), ()
+
+    extruder_by_object_id: dict[str, int] = {}
+    for object_node in settings_root.iter():
+        object_id = object_node.attrib.get("id") if _local_name(object_node.tag) == "object" else None
+        if not object_id:
+            continue
+        for node in object_node.iter():
+            if _local_name(node.tag) != "metadata" or node.attrib.get("key") != "extruder":
+                continue
+            try:
+                extruder_by_object_id[object_id] = int(node.attrib.get("value", ""))
+            except ValueError:
+                pass
+            break
+
+    build = next((node for node in model_root if _local_name(node.tag) == "build"), None)
+    if build is None:
+        return (), ()
+    build_items = [item for item in build if _local_name(item.tag) == "item"]
+    if not build_items:
+        return (), ()
+    build_colors: list[str | None] = []
+    for item in build_items:
+        extruder = extruder_by_object_id.get(item.attrib.get("objectid", ""))
+        color_index = extruder - 1 if extruder is not None else -1
+        build_colors.append(colors[color_index] if 0 <= color_index < len(colors) else None)
+    return (
+        tuple(build_colors) if any(build_colors) else (),
+        _extract_assembly_transforms(settings_root, build_items),
+    )
+
+
+def _extract_assembly_transforms(
+    settings_root: ElementTree.Element,
+    build_items: list[ElementTree.Element],
+) -> tuple[tuple[float, ...], ...]:
+    """Return Bambu assembly transforms only when they cover the full build."""
+
+    transforms_by_object_id: dict[str, tuple[float, ...]] = {}
+    duplicate_object_ids: set[str] = set()
+    for node in settings_root.iter():
+        if _local_name(node.tag) != "assemble_item":
+            continue
+        object_id = node.attrib.get("object_id")
+        transform = _parse_matrix(node.attrib.get("transform"))
+        if not object_id or transform is None:
+            continue
+        if object_id in transforms_by_object_id:
+            duplicate_object_ids.add(object_id)
+            continue
+        transforms_by_object_id[object_id] = transform
+
+    transforms: list[tuple[float, ...]] = []
+    for item in build_items:
+        object_id = item.attrib.get("objectid", "")
+        transform = transforms_by_object_id.get(object_id)
+        if object_id in duplicate_object_ids or transform is None:
+            return ()
+        transforms.append(transform)
+    return tuple(transforms)
+
+
+def _parse_matrix(value: str | None) -> tuple[float, ...] | None:
+    if value is None:
+        return None
+    try:
+        matrix = tuple(float(item) for item in value.split())
+    except ValueError:
+        return None
+    if len(matrix) != 12 or not all(math.isfinite(item) for item in matrix):
+        return None
+    return matrix
+
+
+def _parse_safe_xml(xml_bytes: bytes) -> ElementTree.Element | None:
+    if any(marker in xml_bytes.lower() for marker in _XML_ENTITY_MARKERS):
+        raise ThreeMfExtractionError("unsafe XML in 3MF metadata")
+    try:
+        return ElementTree.fromstring(xml_bytes)
+    except ElementTree.ParseError:
+        return None
+
+
+def _read_member(
+    archive: zipfile.ZipFile,
+    member: zipfile.ZipInfo,
+    maximum: int,
+    budget: _ExtractionReadBudget,
+) -> bytes:
     if member.file_size > maximum:
         raise ThreeMfExtractionError("archive member exceeds extraction limit")
     try:
@@ -284,6 +438,7 @@ def _read_member(archive: zipfile.ZipFile, member: zipfile.ZipInfo, maximum: int
         raise ThreeMfExtractionError("invalid 3MF archive member") from error
     if len(content) > maximum:
         raise ThreeMfExtractionError("archive member exceeds extraction limit")
+    budget.consume(len(content))
     return content
 
 

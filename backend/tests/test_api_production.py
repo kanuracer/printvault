@@ -9,7 +9,7 @@ from sqlalchemy import select
 from app.config import Settings
 from app.db import create_engine_from_settings, create_session_factory
 from app.main import _serializer, create_app
-from app.models import Asset, AuditEvent, Library
+from app.models import Asset, AuditEvent, Library, LibraryExcludeRule
 
 
 def production_settings(tmp_path: Path) -> Settings:
@@ -115,6 +115,22 @@ def test_appearance_preference_is_persisted_per_authenticated_subject(tmp_path: 
         assert client.get("/api/preferences/appearance").json() == {"appearance": "light"}
 
 
+def test_explorer_preference_is_persisted_per_authenticated_subject(tmp_path: Path) -> None:
+    settings = production_settings(tmp_path)
+    with TestClient(create_app(settings), base_url="https://printvault.example.test") as client:
+        client.cookies.set("printvault_session", signed_session(settings, subject="desktop-user", role="viewer"))
+        assert client.get("/api/preferences/explorer").json() == {"view": "grid", "page_size": 50}
+        assert client.put("/api/preferences/explorer", json={"view": "list", "page_size": 100}).json() == {
+            "view": "list", "page_size": 100
+        }
+
+        client.cookies.set("printvault_session", signed_session(settings, subject="phone-user", role="viewer"))
+        assert client.get("/api/preferences/explorer").json() == {"view": "grid", "page_size": 50}
+
+        client.cookies.set("printvault_session", signed_session(settings, subject="desktop-user", role="viewer"))
+        assert client.get("/api/preferences/explorer").json() == {"view": "list", "page_size": 100}
+
+
 def test_startup_indexes_supported_files_from_configured_library_roots(tmp_path: Path) -> None:
     settings = production_settings(tmp_path)
     model = settings.library_models_root / "parts" / "bracket.stl"
@@ -127,6 +143,31 @@ def test_startup_indexes_supported_files_from_configured_library_roots(tmp_path:
 
     assert response.status_code == 200
     assert [(item["relative_path"], item["format"]) for item in response.json()["items"]] == [("parts/bracket.stl", "stl")]
+
+
+def test_startup_merges_configured_and_persisted_library_exclude_rules(tmp_path: Path) -> None:
+    settings = production_settings(tmp_path)
+    settings = settings.model_copy(update={"index_exclude_patterns": ("defaults/**",)})
+    kept = settings.library_models_root / "parts" / "bracket.stl"
+    kept.parent.mkdir(parents=True, exist_ok=True)
+    kept.write_text("solid bracket\nendsolid bracket\n", encoding="ascii")
+    configured = settings.library_models_root / "defaults" / "skip.stl"
+    configured.parent.mkdir(parents=True, exist_ok=True)
+    configured.write_text("solid skip\nendsolid skip\n", encoding="ascii")
+
+    with TestClient(create_app(settings), base_url="https://printvault.example.test"):
+        with session_factory(settings).begin() as session:
+            models = session.scalar(select(Library).where(Library.key == "models"))
+            assert models is not None
+            session.add(LibraryExcludeRule(library=models, pattern="parts/**"))
+
+    with TestClient(create_app(settings), base_url="https://printvault.example.test") as client:
+        client.cookies.set("printvault_session", signed_session(settings, subject="viewer-1", role="viewer"))
+        response = client.get("/api/assets")
+
+    assert response.status_code == 200
+    # A new rule stops future indexing; it must not delete pre-existing metadata.
+    assert [item["filename"] for item in response.json()["items"]] == ["bracket.stl"]
 
 
 def test_indexed_asset_exposes_a_private_persisted_sha_thumbnail(tmp_path: Path) -> None:
@@ -267,6 +308,42 @@ def test_production_uploads_multiple_supported_files_to_a_configured_library_and
     assert [event.action for event in events] == ["upload", "upload"]
 
 
+def test_upload_collision_can_overwrite_or_rename_without_losing_the_existing_asset_identity(tmp_path: Path) -> None:
+    settings = production_settings(tmp_path)
+    with TestClient(create_app(settings), base_url="https://printvault.example.test") as client:
+        existing = add_asset(settings, library_key="models", relative_path="bracket.stl")
+        path = settings.library_models_root / "bracket.stl"
+        path.write_bytes(b"solid old\nendsolid old\n")
+        client.cookies.set("printvault_session", signed_session(settings, subject="editor-1", role="editor"))
+
+        rejected = client.post(
+            "/api/uploads",
+            data={"library_key": "models"},
+            files=[("files", ("bracket.stl", b"solid incoming\nendsolid incoming\n", "model/stl"))],
+        )
+        overwritten = client.post(
+            "/api/uploads",
+            data={"library_key": "models", "collision_policy": "overwrite"},
+            files=[("files", ("bracket.stl", b"solid replacement\nendsolid replacement\n", "model/stl"))],
+        )
+        renamed = client.post(
+            "/api/uploads",
+            data={"library_key": "models", "collision_policy": "rename"},
+            files=[("files", ("bracket.stl", b"solid copy\nendsolid copy\n", "model/stl"))],
+        )
+        listed = client.get("/api/assets", params={"library": "models"})
+
+    assert rejected.status_code == 200
+    assert rejected.json() == {"items": [], "rejected": [{"filename": "bracket.stl", "reason": "collision"}]}
+    assert overwritten.status_code == 200
+    assert overwritten.json()["items"][0]["id"] == str(existing.id)
+    assert path.read_bytes() == b"solid replacement\nendsolid replacement\n"
+    assert renamed.status_code == 200
+    assert renamed.json()["items"][0]["relative_path"] == "bracket (1).stl"
+    assert (settings.library_models_root / "bracket (1).stl").read_bytes() == b"solid copy\nendsolid copy\n"
+    assert {item["id"] for item in listed.json()["items"]} == {str(existing.id), renamed.json()["items"][0]["id"]}
+
+
 def test_editor_creates_a_logical_project_and_assigns_an_existing_model(tmp_path: Path) -> None:
     settings = production_settings(tmp_path)
     with TestClient(create_app(settings), base_url="https://printvault.example.test") as client:
@@ -392,3 +469,59 @@ def test_production_archive_restore_and_permanent_delete_update_database_after_f
         "archive_relative_path": "models/parts/bracket.stl",
     }
     assert events[-1].metadata_json["asset_id"] == str(asset.id)
+
+
+def test_production_batch_archive_is_atomic_and_audits_each_asset(tmp_path: Path) -> None:
+    settings = production_settings(tmp_path)
+    with TestClient(create_app(settings), base_url="https://printvault.example.test") as client:
+        asset_one = add_asset(settings, library_key="models", relative_path="parts/bracket.stl", content=b"bracket")
+        asset_two = add_asset(settings, library_key="models", relative_path="parts/cube.stl", content=b"cube")
+        client.cookies.set("printvault_session", signed_session(settings, subject="editor-1", role="editor"))
+
+        response = client.post("/api/assets/batch/archive", json={"asset_ids": [str(asset_one.id), str(asset_two.id)]})
+
+        with session_factory(settings)() as session:
+            persisted_one = session.get(Asset, asset_one.id)
+            persisted_two = session.get(Asset, asset_two.id)
+            events = session.scalars(select(AuditEvent).order_by(AuditEvent.id)).all()
+
+            assert persisted_one is not None and persisted_one.library.key == "archive"
+            assert persisted_one.relative_path == "models/parts/bracket.stl"
+            assert persisted_two is not None and persisted_two.library.key == "archive"
+            assert persisted_two.relative_path == "models/parts/cube.stl"
+
+    assert response.status_code == 200
+    assert [item["id"] for item in response.json()["items"]] == [str(asset_one.id), str(asset_two.id)]
+    assert (settings.library_archive_root / "models" / "parts" / "bracket.stl").read_bytes() == b"bracket"
+    assert (settings.library_archive_root / "models" / "parts" / "cube.stl").read_bytes() == b"cube"
+    assert [event.action for event in events] == ["archive", "archive"]
+    assert [event.asset_id for event in events] == [asset_one.id, asset_two.id]
+
+
+def test_production_batch_archive_prevalidation_keeps_files_and_rows_unchanged_on_collision(tmp_path: Path) -> None:
+    settings = production_settings(tmp_path)
+    with TestClient(create_app(settings), base_url="https://printvault.example.test") as client:
+        asset_one = add_asset(settings, library_key="models", relative_path="parts/bracket.stl", content=b"bracket")
+        asset_two = add_asset(settings, library_key="models", relative_path="parts/cube.stl", content=b"cube")
+        collision = settings.library_archive_root / "models" / "parts" / "cube.stl"
+        collision.parent.mkdir(parents=True, exist_ok=True)
+        collision.write_bytes(b"existing")
+        client.cookies.set("printvault_session", signed_session(settings, subject="editor-1", role="editor"))
+
+        response = client.post("/api/assets/batch/archive", json={"asset_ids": [str(asset_one.id), str(asset_two.id)]})
+
+        with session_factory(settings)() as session:
+            persisted_one = session.get(Asset, asset_one.id)
+            persisted_two = session.get(Asset, asset_two.id)
+            events = session.scalars(select(AuditEvent).order_by(AuditEvent.id)).all()
+
+            assert persisted_one is not None and persisted_one.library.key == "models"
+            assert persisted_one.relative_path == "parts/bracket.stl"
+            assert persisted_two is not None and persisted_two.library.key == "models"
+            assert persisted_two.relative_path == "parts/cube.stl"
+
+    assert response.status_code == 409
+    assert (settings.library_models_root / "parts" / "bracket.stl").read_bytes() == b"bracket"
+    assert (settings.library_models_root / "parts" / "cube.stl").read_bytes() == b"cube"
+    assert collision.read_bytes() == b"existing"
+    assert events == []

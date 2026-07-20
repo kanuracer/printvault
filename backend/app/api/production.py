@@ -90,10 +90,21 @@ def initialize_production_database(settings: Settings) -> None:
             ArchiveService(registry, registry.library_for_key("archive")),
             ThumbnailCache(settings.thumbnails_root),
         )
-        indexer = LibraryIndexer(SafeFilesystem(registry), repository, ThumbnailCache(settings.thumbnails_root))
+        indexer = LibraryIndexer(
+            SafeFilesystem(registry), repository, ThumbnailCache(settings.thumbnails_root), exclude_patterns=settings.index_exclude_patterns
+        )
         with session_factory() as session:
             libraries = session.scalars(select(Library).where(Library.key.in_(_LIBRARY_ROOTS))).all()
             for library in libraries:
+                indexer = LibraryIndexer(
+                    SafeFilesystem(registry),
+                    repository,
+                    ThumbnailCache(settings.thumbnails_root),
+                    exclude_patterns=(
+                        *settings.index_exclude_patterns,
+                        *(rule.pattern for rule in repository.list_library_exclude_rules(library.key) or ()),
+                    ),
+                )
                 indexer.scan(library)
     finally:
         engine.dispose()
@@ -115,6 +126,7 @@ def build_production_dependencies(settings: Settings) -> ApiDependencies:
         SafeFilesystem(registry),
         archive_service,
         ThumbnailCache(settings.thumbnails_root),
+        helper_secret=settings.session_secret.get_secret_value() if settings.session_secret is not None else "",
     )
     return ApiDependencies(repository=repository, session_resolver=signed_session_resolver(settings))
 

@@ -1,10 +1,10 @@
 services:
   printvault:
     build:
-      context: /mnt/user/appdata/printvault/source
+      context: .
       dockerfile: Dockerfile
-    image: printvault:local
-    container_name: printvault
+    image: ${PRINTVAULT_IMAGE:-printvault:local}
+    container_name: ${PRINTVAULT_CONTAINER_NAME:-printvault}
     user: "99:100"
     restart: unless-stopped
     read_only: true
@@ -15,28 +15,24 @@ services:
     tmpfs:
       - /tmp:mode=1777,size=640m
       - /var/cache/nginx:uid=99,gid=100,mode=0750,size=640m
+    env_file:
+      - .env
     environment:
-      PRINTVAULT_DATABASE_URL_FILE: "/run/secrets/printvault_database_url"
-      PRINTVAULT_ENVIRONMENT: "production"
-      PRINTVAULT_OIDC_ISSUER_URL: "https://pcloud.kanuracer.eu"
-      PRINTVAULT_OIDC_CLIENT_ID_FILE: "/run/secrets/printvault_oidc_client_id"
-      PRINTVAULT_OIDC_CLIENT_SECRET_FILE: "/run/secrets/printvault_oidc_client_secret"
-      PRINTVAULT_OIDC_REDIRECT_URI: "https://printvault.kanuracer.de/api/auth/callback"
-      PRINTVAULT_OIDC_GROUPS_CLAIM: "groups"
-      PRINTVAULT_SESSION_SECRET_FILE: "/run/secrets/printvault_session_secret"
-      PRINTVAULT_LIBRARY_MODELS_ROOT: "/libraries/modelle"
-      PRINTVAULT_LIBRARY_ARCHIVE_ROOT: "/libraries/archiv"
-      PRINTVAULT_DATA_ROOT: "/var/lib/printvault"
-      PRINTVAULT_THUMBNAILS_ROOT: "/var/lib/printvault/thumbnails"
+      PRINTVAULT_DATABASE_URL_FILE: /run/secrets/database_url
+      PRINTVAULT_OIDC_CLIENT_ID_FILE: /run/secrets/oidc_client_id
+      PRINTVAULT_OIDC_CLIENT_SECRET_FILE: /run/secrets/oidc_client_secret
+      PRINTVAULT_SESSION_SECRET_FILE: /run/secrets/session_secret
     volumes:
-      - /mnt/user/appdata/printvault/modelle:/libraries/modelle:rw
-      - /mnt/user/appdata/printvault/archiv:/libraries/archiv:rw
-      - /mnt/user/appdata/printvault/data:/var/lib/printvault:rw
-      - /mnt/user/appdata/printvault/thumbnails:/var/lib/printvault/thumbnails:rw
-      - /mnt/user/appdata/printvault/secrets/database_url:/run/secrets/printvault_database_url:ro
-      - /mnt/user/appdata/printvault/secrets/oidc_client_id:/run/secrets/printvault_oidc_client_id:ro
-      - /mnt/user/appdata/printvault/secrets/oidc_client_secret:/run/secrets/printvault_oidc_client_secret:ro
-      - /mnt/user/appdata/printvault/secrets/session_secret:/run/secrets/printvault_session_secret:ro
+      - ${PRINTVAULT_MODELS_DIR:-./models}:/libraries/models:rw
+      - ${PRINTVAULT_ARCHIVE_DIR:-./archive}:/libraries/archive:rw
+      - ${PRINTVAULT_DATA_DIR:-./data}:/var/lib/printvault:rw
+      - ${PRINTVAULT_THUMBNAILS_DIR:-./thumbnails}:/var/lib/printvault/thumbnails:rw
+      - ${PRINTVAULT_SECRETS_DIR:-./secrets}/database_url:/run/secrets/database_url:ro
+      - ${PRINTVAULT_SECRETS_DIR:-./secrets}/oidc_client_id:/run/secrets/oidc_client_id:ro
+      - ${PRINTVAULT_SECRETS_DIR:-./secrets}/oidc_client_secret:/run/secrets/oidc_client_secret:ro
+      - ${PRINTVAULT_SECRETS_DIR:-./secrets}/session_secret:/run/secrets/session_secret:ro
+    ports:
+      - "127.0.0.1:${PRINTVAULT_PORT:-8080}:8080"
     healthcheck:
       test:
         - CMD
@@ -47,9 +43,4 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
-    networks:
-      - web_net
 
-networks:
-  web_net:
-    external: true

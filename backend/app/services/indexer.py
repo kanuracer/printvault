@@ -6,9 +6,10 @@ import os
 from collections import defaultdict
 from collections.abc import Iterable
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Protocol
 
+from app.models import normalize_relative_glob_pattern
 from app.services.filesystem import LibraryLike, SafeFilesystem, UnsafePathError, UnsupportedMutationError
 from app.services.metadata import FileFingerprint, GeometryMetadata, SUPPORTED_FORMATS, extract_geometry, fingerprint_model
 from app.services.thumbnails import ThumbnailCache
@@ -54,10 +55,13 @@ class IndexRepository(Protocol):
 class LibraryIndexer:
     """Index supported regular files only under a registered configured root."""
 
-    def __init__(self, filesystem: SafeFilesystem, repository: IndexRepository, thumbnails: ThumbnailCache) -> None:
+    def __init__(
+        self, filesystem: SafeFilesystem, repository: IndexRepository, thumbnails: ThumbnailCache, *, exclude_patterns: Iterable[str] = ()
+    ) -> None:
         self.filesystem = filesystem
         self.repository = repository
         self.thumbnails = thumbnails
+        self.exclude_patterns = tuple(_safe_exclude_pattern(pattern) for pattern in exclude_patterns)
 
     def scan(self, library: LibraryLike) -> ScanResult:
         """Scan one configured library without following links or deleting records."""
@@ -73,6 +77,9 @@ class LibraryIndexer:
             for filename in filenames:
                 candidate = Path(directory) / filename
                 relative_path = candidate.relative_to(root).as_posix()
+                if any(_matches_exclude_pattern(relative_path, pattern) for pattern in self.exclude_patterns):
+                    skipped += 1
+                    continue
                 if candidate.suffix.casefold().lstrip(".") not in SUPPORTED_FORMATS:
                     skipped += 1
                     continue
@@ -85,8 +92,23 @@ class LibraryIndexer:
 
                 present.add(relative_path)
                 existing = self.repository.get(identity.key, relative_path)
+                metadata = _three_mf_metadata(resolved, fingerprint.format)
                 if existing is not None and existing.fingerprint == fingerprint and not existing.missing:
-                    unchanged += 1
+                    if existing.metadata == metadata:
+                        unchanged += 1
+                        continue
+                    self.repository.update(
+                        IndexedAsset(
+                            library_key=identity.key,
+                            relative_path=relative_path,
+                            format=fingerprint.format,
+                            fingerprint=fingerprint,
+                            geometry=existing.geometry,
+                            thumbnail_path=existing.thumbnail_path,
+                            metadata=metadata,
+                        )
+                    )
+                    updated += 1
                     continue
 
                 try:
@@ -100,7 +122,6 @@ class LibraryIndexer:
                 else:
                     thumbnail_path = str(thumbnail.path)
 
-                metadata = _three_mf_metadata(resolved, fingerprint.format)
                 record = IndexedAsset(
                     library_key=identity.key,
                     relative_path=relative_path,
@@ -121,6 +142,15 @@ class LibraryIndexer:
         return ScanResult(created=created, updated=updated, unchanged=unchanged, missing=missing, skipped=skipped, failed=failed)
 
 
+def _safe_exclude_pattern(value: str) -> str:
+    return normalize_relative_glob_pattern(value)
+
+
+def _matches_exclude_pattern(relative_path: str, pattern: str) -> bool:
+    path = PurePosixPath(relative_path)
+    return path.match(pattern) or (pattern.startswith("**/") and path.match(pattern[3:]))
+
+
 def _three_mf_metadata(path: Path, format_name: str) -> dict[str, object]:
     if format_name != "3mf":
         return {}
@@ -128,20 +158,23 @@ def _three_mf_metadata(path: Path, format_name: str) -> dict[str, object]:
         extraction = extract_three_mf_metadata(path)
     except (OSError, ValueError, ThreeMfExtractionError):
         return {}
-    return {
-        "three_mf": {
-            "core": dict(extraction.metadata),
-            "documents": [
-                {
-                    "label": document.display_label,
-                    "content_type": document.content_type,
-                    "byte_size": document.byte_size,
-                    **({"text": document.text_content} if document.text_content is not None else {}),
-                }
-                for document in extraction.documents
-            ],
-        }
+    presentation: dict[str, object] = {
+        "core": dict(extraction.metadata),
+        "documents": [
+            {
+                "label": document.display_label,
+                "content_type": document.content_type,
+                "byte_size": document.byte_size,
+                **({"text": document.text_content} if document.text_content is not None else {}),
+            }
+            for document in extraction.documents
+        ],
     }
+    if extraction.build_colors:
+        presentation["build_colors"] = list(extraction.build_colors)
+    if extraction.build_transforms:
+        presentation["build_transforms"] = [list(transform) for transform in extraction.build_transforms]
+    return {"three_mf": presentation}
 
 
 def duplicate_groups(assets: Iterable[IndexedAsset]) -> dict[str, tuple[IndexedAsset, ...]]:

@@ -22,7 +22,14 @@ const authenticatedResponses = (assets: unknown, detail = assets, role: 'viewer'
   if (url === '/api/auth/me') return Promise.resolve(jsonResponse({ subject: 'user-1', role }))
   if (url === '/api/preferences/appearance' && init?.method === 'PUT') return Promise.resolve(jsonResponse(JSON.parse(init.body as string)))
   if (url === '/api/preferences/appearance') return Promise.resolve(jsonResponse({ appearance: 'dark' }))
+  if (url === '/api/preferences/explorer' && init?.method === 'PUT') return Promise.resolve(jsonResponse(JSON.parse(init.body as string)))
+  if (url === '/api/preferences/explorer') return Promise.resolve(jsonResponse({ view: 'grid', page_size: 50 }))
   if (url === '/api/libraries') return Promise.resolve(jsonResponse({ items: [{ key: 'models', name: 'Modelle' }] }))
+  if (url === '/api/helper/devices') return Promise.resolve(jsonResponse({ items: [] }))
+  if (url === '/api/helper/pairing-codes' && init?.method === 'POST') return Promise.resolve(jsonResponse({ pairing_code: 'PAIR-000001', expires_at: '2026-07-20T12:05:00Z' }, 201))
+  if (url === '/api/admin/libraries/models/exclude-rules' && init?.method === 'POST') return Promise.resolve(jsonResponse({ items: [{ pattern: 'drafts/**/*.stl' }] }, 201))
+  if (url === '/api/admin/libraries/models/exclude-rules' && init?.method === 'DELETE') return Promise.resolve(jsonResponse({ items: [] }))
+  if (url === '/api/admin/libraries/models/exclude-rules') return Promise.resolve(jsonResponse({ items: [] }))
   if (url === '/api/assets') return Promise.resolve(jsonResponse({ items: assets, total: Array.isArray(assets) ? assets.length : 0 }))
   if (url === '/api/projects') return Promise.resolve(jsonResponse({ items: [] }))
   if (url === '/api/tags') return Promise.resolve(jsonResponse({ items: [] }))
@@ -82,11 +89,138 @@ describe('PrintVault authenticated asset library', () => {
     render(<App />)
 
     await waitFor(() => expect(document.documentElement.dataset.theme).toBe('light'))
+    await user.click(screen.getByRole('button', { name: 'Einstellungen' }))
     await user.click(screen.getByLabelText('Dunkel'))
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/preferences/appearance', expect.objectContaining({
       method: 'PUT', body: JSON.stringify({ appearance: 'dark' }),
     })))
     expect(document.documentElement.dataset.theme).toBe('dark')
+  })
+
+  it('loads the server explorer preference and persists a list view change', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url === '/api/auth/me') return Promise.resolve(jsonResponse({ subject: 'user-1', role: 'viewer' }))
+      if (url === '/api/preferences/appearance') return Promise.resolve(jsonResponse({ appearance: 'dark' }))
+      if (url === '/api/preferences/explorer' && init?.method === 'PUT') return Promise.resolve(jsonResponse(JSON.parse(init.body as string)))
+      if (url === '/api/preferences/explorer') return Promise.resolve(jsonResponse({ view: 'grid', page_size: 50 }))
+      if (url === '/api/libraries') return Promise.resolve(jsonResponse({ items: [] }))
+      if (url === '/api/assets') return Promise.resolve(jsonResponse({ items: [] }))
+      if (url === '/api/projects') return Promise.resolve(jsonResponse({ items: [] }))
+      if (url === '/api/tags') return Promise.resolve(jsonResponse({ items: [] }))
+      return Promise.reject(new Error(`Unexpected request: ${url}`))
+    })
+    const user = userEvent.setup()
+
+    render(<App />)
+
+    await user.click(await screen.findByRole('button', { name: 'Listenansicht' }))
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/preferences/explorer', expect.objectContaining({
+      method: 'PUT', body: JSON.stringify({ view: 'list', page_size: 50 }),
+    })))
+  })
+
+  it('selects multiple assets and assigns a tag through the atomic batch API', async () => {
+    const fetchMock = vi.mocked(fetch)
+    const assets = [
+      { id: 'asset-1', library_key: 'models', relative_path: 'Bracket.stl', filename: 'Bracket.stl', format: 'stl', tags: [] },
+      { id: 'asset-2', library_key: 'models', relative_path: 'Cube.obj', filename: 'Cube.obj', format: 'obj', tags: [] },
+    ]
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url === '/api/auth/me') return Promise.resolve(jsonResponse({ subject: 'editor-1', role: 'editor' }))
+      if (url === '/api/preferences/appearance') return Promise.resolve(jsonResponse({ appearance: 'dark' }))
+      if (url === '/api/preferences/explorer') return Promise.resolve(jsonResponse({ view: 'grid', page_size: 50 }))
+      if (url === '/api/libraries') return Promise.resolve(jsonResponse({ items: [{ key: 'models', name: 'Modelle' }] }))
+      if (url === '/api/assets') return Promise.resolve(jsonResponse({ items: assets, total: assets.length }))
+      if (url === '/api/projects') return Promise.resolve(jsonResponse({ items: [] }))
+      if (url === '/api/tags') return Promise.resolve(jsonResponse({ items: [{ key: 'art', name: 'Art' }] }))
+      if (url === '/api/assets/batch/tags' && init?.method === 'POST') return Promise.resolve(jsonResponse({ items: assets.map((asset) => ({ ...asset, tags: ['art'] })) }))
+      return Promise.reject(new Error(`Unexpected request: ${url}`))
+    })
+    const user = userEvent.setup()
+
+    render(<App />)
+
+    await user.click(await screen.findByRole('checkbox', { name: 'Modell auswählen: Bracket.stl' }))
+    await user.click(screen.getByRole('checkbox', { name: 'Modell auswählen: Cube.obj' }))
+    await user.selectOptions(screen.getByLabelText('Tag für Auswahl'), 'art')
+    await user.click(screen.getByRole('button', { name: 'Tag zuweisen' }))
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/assets/batch/tags', expect.objectContaining({
+      method: 'POST', body: JSON.stringify({ asset_ids: ['asset-1', 'asset-2'], tag_keys: ['art'] }),
+    })))
+    expect(screen.getAllByText('art')).toHaveLength(2)
+  })
+
+  it('confirms before batch archive and clears selection only after success', async () => {
+    const fetchMock = vi.mocked(fetch)
+    const assets = [
+      { id: 'asset-1', library_key: 'models', relative_path: 'Bracket.stl', filename: 'Bracket.stl', format: 'stl', tags: [], archived: false },
+      { id: 'asset-2', library_key: 'models', relative_path: 'Cube.obj', filename: 'Cube.obj', format: 'obj', tags: [], archived: false },
+    ]
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url === '/api/auth/me') return Promise.resolve(jsonResponse({ subject: 'editor-1', role: 'editor' }))
+      if (url === '/api/preferences/appearance') return Promise.resolve(jsonResponse({ appearance: 'dark' }))
+      if (url === '/api/preferences/explorer') return Promise.resolve(jsonResponse({ view: 'grid', page_size: 50 }))
+      if (url === '/api/libraries') return Promise.resolve(jsonResponse({ items: [{ key: 'models', name: 'Modelle' }] }))
+      if (url === '/api/assets') return Promise.resolve(jsonResponse({ items: assets, total: assets.length }))
+      if (url === '/api/projects') return Promise.resolve(jsonResponse({ items: [] }))
+      if (url === '/api/tags') return Promise.resolve(jsonResponse({ items: [] }))
+      if (url === '/api/assets/batch/archive' && init?.method === 'POST') return Promise.resolve(jsonResponse({ items: assets.map((asset) => ({ ...asset, library_key: 'archive', relative_path: `models/${asset.relative_path}`, archived: true })) }))
+      return Promise.reject(new Error(`Unexpected request: ${url}`))
+    })
+    const user = userEvent.setup()
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
+
+    render(<App />)
+
+    await user.click(await screen.findByRole('checkbox', { name: 'Modell auswählen: Bracket.stl' }))
+    await user.click(screen.getByRole('checkbox', { name: 'Modell auswählen: Cube.obj' }))
+    await user.click(screen.getByRole('button', { name: 'Auswahl archivieren' }))
+
+    await waitFor(() => expect(confirmSpy).toHaveBeenCalledWith('2 ausgewählte Modelle ins Archiv verschieben?'))
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/assets/batch/archive', expect.objectContaining({
+      method: 'POST', body: JSON.stringify({ asset_ids: ['asset-1', 'asset-2'] }),
+    })))
+    expect(screen.getByText('2 Modelle archiviert.')).toBeVisible()
+    expect(screen.queryByRole('checkbox', { name: 'Modell auswählen: Bracket.stl', checked: true })).not.toBeInTheDocument()
+    expect(screen.queryByText('Bracket.stl')).not.toBeInTheDocument()
+  })
+
+  it('keeps the batch selection when batch archive fails', async () => {
+    const fetchMock = vi.mocked(fetch)
+    const assets = [
+      { id: 'asset-1', library_key: 'models', relative_path: 'Bracket.stl', filename: 'Bracket.stl', format: 'stl', tags: [], archived: false },
+      { id: 'asset-2', library_key: 'models', relative_path: 'Cube.obj', filename: 'Cube.obj', format: 'obj', tags: [], archived: false },
+    ]
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url === '/api/auth/me') return Promise.resolve(jsonResponse({ subject: 'editor-1', role: 'editor' }))
+      if (url === '/api/preferences/appearance') return Promise.resolve(jsonResponse({ appearance: 'dark' }))
+      if (url === '/api/preferences/explorer') return Promise.resolve(jsonResponse({ view: 'grid', page_size: 50 }))
+      if (url === '/api/libraries') return Promise.resolve(jsonResponse({ items: [{ key: 'models', name: 'Modelle' }] }))
+      if (url === '/api/assets') return Promise.resolve(jsonResponse({ items: assets, total: assets.length }))
+      if (url === '/api/projects') return Promise.resolve(jsonResponse({ items: [] }))
+      if (url === '/api/tags') return Promise.resolve(jsonResponse({ items: [] }))
+      if (url === '/api/assets/batch/archive' && init?.method === 'POST') return Promise.resolve(jsonResponse({ detail: 'batch archive failed' }, 500))
+      return Promise.reject(new Error(`Unexpected request: ${url}`))
+    })
+    const user = userEvent.setup()
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+
+    render(<App />)
+
+    await user.click(await screen.findByRole('checkbox', { name: 'Modell auswählen: Bracket.stl' }))
+    await user.click(screen.getByRole('checkbox', { name: 'Modell auswählen: Cube.obj' }))
+    await user.click(screen.getByRole('button', { name: 'Auswahl archivieren' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('batch archive failed')
+    expect(screen.getByRole('checkbox', { name: 'Modell auswählen: Bracket.stl' })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: 'Modell auswählen: Cube.obj' })).toBeChecked()
+    expect(screen.getByText('Bracket.stl')).toBeVisible()
   })
 
   it('does not expose the legacy filesystem projects library as a model library', async () => {
@@ -104,6 +238,78 @@ describe('PrintVault authenticated asset library', () => {
     render(<App />)
     const libraries = await screen.findByRole('navigation', { name: 'Bibliotheken' })
     expect(within(libraries).queryByRole('button', { name: 'Projects' })).not.toBeInTheDocument()
+  })
+
+  it('shows the admin exclude-rule panel only for admins and surfaces validation errors', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url === '/api/auth/me') return Promise.resolve(jsonResponse({ subject: 'admin-1', role: 'admin' }))
+      if (url === '/api/preferences/appearance') return Promise.resolve(jsonResponse({ appearance: 'dark' }))
+      if (url === '/api/preferences/explorer') return Promise.resolve(jsonResponse({ view: 'grid', page_size: 50 }))
+      if (url === '/api/libraries') return Promise.resolve(jsonResponse({ items: [{ key: 'models', name: 'Modelle' }] }))
+      if (url === '/api/admin/libraries/models/exclude-rules' && init?.method === 'POST') {
+        const body = JSON.parse(String(init.body))
+        return Promise.resolve(body.pattern === '../escape'
+          ? jsonResponse({ detail: 'exclude pattern must be a non-escaping relative glob' }, 422)
+          : jsonResponse({ items: [{ pattern: 'drafts/**/*.stl' }] }, 201))
+      }
+      if (url === '/api/admin/libraries/models/exclude-rules') return Promise.resolve(jsonResponse({ items: [] }))
+      if (url === '/api/assets') return Promise.resolve(jsonResponse({ items: [], total: 0 }))
+      if (url === '/api/projects') return Promise.resolve(jsonResponse({ items: [] }))
+      if (url === '/api/tags') return Promise.resolve(jsonResponse({ items: [] }))
+      return Promise.reject(new Error(`Unexpected request: ${url}`))
+    })
+    const user = userEvent.setup()
+
+    render(<App />)
+
+    await user.click(await screen.findByRole('button', { name: 'Einstellungen' }))
+    expect(await screen.findByText('Bibliothek-Ausschlussregeln')).toBeVisible()
+    await user.type(screen.getByLabelText('Muster'), '../escape')
+    await user.click(screen.getByRole('button', { name: 'Muster hinzufügen' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('exclude pattern must be a non-escaping relative glob')
+    await user.clear(screen.getByLabelText('Muster'))
+    await user.type(screen.getByLabelText('Muster'), 'drafts/**/*.stl')
+    await user.click(screen.getByRole('button', { name: 'Muster hinzufügen' }))
+    expect(await screen.findByText('Ausschlussregel gespeichert.')).toBeVisible()
+    expect(screen.getByText('drafts/**/*.stl')).toBeVisible()
+  })
+
+  it('renders helper pairing and owned-device management without exposing credentials', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url === '/api/auth/me') return Promise.resolve(jsonResponse({ subject: 'viewer-1', role: 'viewer' }))
+      if (url === '/api/preferences/appearance') return Promise.resolve(jsonResponse({ appearance: 'dark' }))
+      if (url === '/api/preferences/explorer') return Promise.resolve(jsonResponse({ view: 'grid', page_size: 50 }))
+      if (url === '/api/libraries') return Promise.resolve(jsonResponse({ items: [{ key: 'models', name: 'Modelle' }] }))
+      if (url === '/api/helper/devices/device-1' && init?.method === 'DELETE') return Promise.resolve(new Response(null, { status: 204 }))
+      if (url === '/api/helper/devices') return Promise.resolve(jsonResponse({ items: [{ device_id: 'device-1', name: 'Werkbank', created_at: '2026-07-20T12:00:00Z' }] }))
+      if (url === '/api/helper/pairing-codes' && init?.method === 'POST') return Promise.resolve(jsonResponse({ pairing_code: 'PAIR-123456', expires_at: '2026-07-20T12:05:00Z' }, 201))
+      if (url === '/api/assets') return Promise.resolve(jsonResponse({ items: [], total: 0 }))
+      if (url === '/api/projects') return Promise.resolve(jsonResponse({ items: [] }))
+      if (url === '/api/tags') return Promise.resolve(jsonResponse({ items: [] }))
+      return Promise.reject(new Error(`Unexpected request: ${url}`))
+    })
+    const user = userEvent.setup()
+
+    render(<App />)
+
+    await user.click(await screen.findByRole('button', { name: 'Einstellungen' }))
+    expect(await screen.findByText('Helper')).toBeVisible()
+    expect(screen.getByText('Werkbank')).toBeVisible()
+    expect(screen.queryByText(/device_credential/i)).not.toBeInTheDocument()
+    expect(screen.getByText(/Der Helper speichert die Geraeteanmeldung lokal/)).toBeVisible()
+
+    await user.click(screen.getByRole('button', { name: 'Kopplungscode erzeugen' }))
+    expect(await screen.findByText('PAIR-123456')).toBeVisible()
+    expect(screen.getByText(/Gueltig bis:/)).toBeVisible()
+
+    await user.click(screen.getByRole('button', { name: 'Entziehen' }))
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/helper/devices/device-1', expect.objectContaining({ method: 'DELETE' })))
+    await waitFor(() => expect(screen.queryByText('Werkbank')).not.toBeInTheDocument())
+    expect(screen.getByText('Geraet entzogen.')).toBeVisible()
   })
 
   it('opens mobile navigation and details as dismissible dialogs', async () => {
@@ -154,6 +360,37 @@ describe('PrintVault authenticated asset library', () => {
     await user.upload(await screen.findByLabelText('Modelle hochladen'), files)
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/uploads', expect.objectContaining({ method: 'POST' })))
+  })
+
+  it('asks whether a duplicate upload should overwrite or receive an adjusted name', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url === '/api/auth/me') return Promise.resolve(jsonResponse({ subject: 'editor-1', role: 'editor' }))
+      if (url === '/api/libraries') return Promise.resolve(jsonResponse({ items: [{ key: 'models', name: 'Modelle' }] }))
+      if (url === '/api/assets') return Promise.resolve(jsonResponse({ items: [], total: 0 }))
+      if (url === '/api/projects') return Promise.resolve(jsonResponse({ items: [] }))
+      if (url === '/api/tags') return Promise.resolve(jsonResponse({ items: [] }))
+      if (url === '/api/uploads') {
+        const policy = (init?.body as FormData).get('collision_policy')
+        return Promise.resolve(policy === 'overwrite'
+          ? jsonResponse({ items: [{ id: 'asset-1', library_key: 'models', relative_path: 'bracket.stl', filename: 'bracket.stl', format: 'stl', favorite: false, tags: [], archived: false }], rejected: [] })
+          : jsonResponse({ items: [], rejected: [{ filename: 'bracket.stl', reason: 'collision' }] }))
+      }
+      return Promise.reject(new Error(`Unexpected request: ${url}`))
+    })
+    const user = userEvent.setup()
+
+    render(<App />)
+    await user.upload(await screen.findByLabelText('Modelle hochladen'), new File(['solid replacement'], 'bracket.stl', { type: 'model/stl' }))
+
+    const dialog = await screen.findByRole('dialog', { name: 'Duplikat erkannt' })
+    expect(within(dialog).getByText(/bracket\.stl/)).toBeVisible()
+    await user.click(within(dialog).getByRole('button', { name: 'Bestehendes Modell überschreiben' }))
+    await waitFor(() => expect(fetchMock).toHaveBeenLastCalledWith('/api/uploads', expect.objectContaining({ method: 'POST' })))
+    const body = vi.mocked(fetch).mock.calls.at(-1)?.[1]?.body as FormData
+    expect(body.get('collision_policy')).toBe('overwrite')
+    expect(screen.queryByRole('dialog', { name: 'Duplikat erkannt' })).not.toBeInTheDocument()
   })
 
   it('accepts dropped files in the editor drop zone', async () => {
@@ -276,6 +513,7 @@ describe('PrintVault authenticated asset library', () => {
       if (url === '/api/auth/me') return Promise.resolve(jsonResponse({ subject: 'user-1', role: 'viewer' }))
       if (url === '/api/libraries') return Promise.resolve(jsonResponse({ items: [{ key: 'models', name: 'Modelle' }, { key: 'archive', name: 'Archiv' }] }))
       if (url === '/api/assets?library=archive') return Promise.resolve(jsonResponse({ items: [] }))
+      if (url === '/api/assets?project_id=project-1') return Promise.resolve(jsonResponse({ items: [asset] }))
       if (url === '/api/assets') return Promise.resolve(jsonResponse({ items: [asset] }))
       if (url === '/api/projects') return Promise.resolve(jsonResponse({ items: [{ id: 'project-1', name: 'Drucker', description: '', asset_ids: ['asset-1'] }] }))
       if (url === '/api/tags') return Promise.resolve(jsonResponse({ items: [] }))
@@ -320,6 +558,8 @@ describe('PrintVault authenticated asset library', () => {
       if (url === '/api/auth/me') return Promise.resolve(jsonResponse({ subject: 'user-1', role: 'viewer' }))
       if (url === '/api/libraries') return Promise.resolve(jsonResponse({ items: [{ key: 'models', name: 'Modelle' }] }))
       if (url === '/api/assets') return Promise.resolve(jsonResponse({ items: [rootAsset, folderAsset] }))
+      if (url === '/api/assets?project_id=project-1') return Promise.resolve(jsonResponse({ items: [rootAsset] }))
+      if (url === '/api/assets?project_id=project-1&folder_id=folder-1') return Promise.resolve(jsonResponse({ items: [folderAsset] }))
       if (url === '/api/projects') return Promise.resolve(jsonResponse({ items: [{ id: 'project-1', name: 'Drucker', description: '', asset_ids: ['root-asset', 'folder-asset'], folders: [{ id: 'folder-1', name: 'Counter', parent_id: null }], asset_folder_ids: { 'folder-asset': 'folder-1' } }] }))
       if (url === '/api/tags') return Promise.resolve(jsonResponse({ items: [] }))
       return Promise.reject(new Error(`Unexpected request: ${url}`))
@@ -334,7 +574,7 @@ describe('PrintVault authenticated asset library', () => {
     fireEvent.popState(window, { state: { printvaultExplorer: true, location: { libraryKey: null, projectId: 'project-1', folderId: null, showProjects: false } } })
 
     expect(await screen.findByRole('heading', { name: 'Drucker' })).toBeVisible()
-    expect(screen.getByRole('button', { name: /Root\.stl/i })).toBeVisible()
+    expect(await screen.findByRole('button', { name: /Root\.stl/i })).toBeVisible()
     expect(screen.queryByRole('button', { name: /Folder\.stl/i })).not.toBeInTheDocument()
   })
 
@@ -390,6 +630,45 @@ describe('PrintVault authenticated asset library', () => {
     expect(await screen.findByRole('option', { name: 'Projekt 9999' })).toBeVisible()
   })
 
+  it('moves a project model into a child folder by dropping its card on that folder', async () => {
+    const asset = { id: 'asset-1', library_key: 'models', relative_path: 'Widget.stl', filename: 'Widget.stl', format: 'stl', tags: [] }
+    const project = {
+      id: 'project-1', name: 'Werkbank', description: '', asset_ids: ['asset-1'],
+      folders: [{ id: 'folder-1', name: 'Druckteile', parent_id: null }], asset_folder_ids: {},
+    }
+    const movedProject = { ...project, asset_folder_ids: { 'asset-1': 'folder-1' } }
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url === '/api/auth/me') return Promise.resolve(jsonResponse({ subject: 'editor-1', role: 'editor' }))
+      if (url === '/api/libraries') return Promise.resolve(jsonResponse({ items: [{ key: 'models', name: 'Modelle' }] }))
+      if (url === '/api/assets') return Promise.resolve(jsonResponse({ items: [asset] }))
+      if (url === '/api/assets?project_id=project-1') return Promise.resolve(jsonResponse({ items: [asset] }))
+      if (url === '/api/projects') return Promise.resolve(jsonResponse({ items: [project] }))
+      if (url === '/api/tags') return Promise.resolve(jsonResponse({ items: [] }))
+      if (url === '/api/projects/project-1/assets/asset-1' && init?.method === 'PUT') return Promise.resolve(jsonResponse(movedProject))
+      return Promise.reject(new Error(`Unexpected request: ${url}`))
+    })
+    const user = userEvent.setup()
+    const dataTransfer = { effectAllowed: '', getData: vi.fn(() => 'asset-1'), setData: vi.fn() } as unknown as DataTransfer
+
+    render(<App />)
+    await user.click(await screen.findByRole('button', { name: /Werkbank/ }))
+    const modelCard = screen.getByRole('button', { name: 'Widget.stl' }).closest('article')
+    const folderCard = screen.getByRole('button', { name: 'Druckteile' })
+    expect(modelCard).not.toBeNull()
+
+    fireEvent.dragStart(modelCard!, { dataTransfer })
+    fireEvent.dragOver(folderCard, { dataTransfer })
+    fireEvent.drop(folderCard, { dataTransfer })
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      '/api/projects/project-1/assets/asset-1',
+      expect.objectContaining({ method: 'PUT', body: JSON.stringify({ folder_id: 'folder-1' }) }),
+    ))
+    expect(await screen.findByText('„Widget.stl“ wurde nach „Druckteile“ verschoben.')).toBeVisible()
+  })
+
 
   it('renders the localized asset loading failure without demo content', async () => {
     const fetchMock = vi.mocked(fetch)
@@ -413,6 +692,7 @@ describe('PrintVault authenticated asset library', () => {
     render(<App />)
 
     await screen.findByText('Noch keine Modelle')
+    await user.click(screen.getByRole('button', { name: 'Einstellungen' }))
     await user.click(screen.getByLabelText('Hell'))
 
     expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe('light')

@@ -9,6 +9,7 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import PurePosixPath, PureWindowsPath
 from typing import Any
+from urllib.parse import urlparse
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, JSON, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
@@ -32,6 +33,32 @@ def normalize_relative_path(value: str) -> str:
     return "/".join(normalized_parts)
 
 
+def normalize_relative_glob_pattern(value: str) -> str:
+    """Return a stable POSIX-relative glob pattern or reject an unsafe one."""
+    raw_pattern = value.strip() if isinstance(value, str) else ""
+    windows_path = PureWindowsPath(raw_pattern)
+    parsed = urlparse(raw_pattern)
+    if (
+        not raw_pattern
+        or "\x00" in raw_pattern
+        or "\\" in raw_pattern
+        or PurePosixPath(raw_pattern).is_absolute()
+        or windows_path.is_absolute()
+        or bool(windows_path.drive)
+        or bool(parsed.scheme)
+        or raw_pattern.startswith("//")
+    ):
+        raise ValueError("exclude pattern must be a non-empty relative glob")
+
+    parts = raw_pattern.split("/")
+    if any(part == ".." for part in parts):
+        raise ValueError("exclude pattern must be a non-escaping relative glob")
+    normalized_parts = [part for part in parts if part and part != "."]
+    if not normalized_parts:
+        raise ValueError("exclude pattern must be a non-empty relative glob")
+    return "/".join(normalized_parts)
+
+
 class Library(Base):
     __tablename__ = "libraries"
 
@@ -46,6 +73,9 @@ class Library(Base):
     )
 
     assets: Mapped[list["Asset"]] = relationship(back_populates="library")
+    exclude_rules: Mapped[list["LibraryExcludeRule"]] = relationship(
+        back_populates="library", cascade="all, delete-orphan"
+    )
 
 
 class Asset(Base):
@@ -73,6 +103,7 @@ class Asset(Base):
         secondary="asset_tags", back_populates="assets", overlaps="asset,tag_links,tag"
     )
     audit_events: Mapped[list["AuditEvent"]] = relationship(back_populates="asset")
+    helper_jobs: Mapped[list["HelperJob"]] = relationship(back_populates="asset")
     project_links: Mapped[list["ProjectAsset"]] = relationship(
         back_populates="asset", cascade="all, delete-orphan", overlaps="projects,assets"
     )
@@ -190,6 +221,71 @@ class AuditEvent(Base):
     asset: Mapped[Asset | None] = relationship(back_populates="audit_events")
 
 
+class HelperDevice(Base):
+    __tablename__ = "helper_devices"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    device_id: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    owner_subject: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    credential_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    jobs: Mapped[list["HelperJob"]] = relationship(back_populates="device", cascade="all, delete-orphan")
+
+
+class HelperPairingCode(Base):
+    __tablename__ = "helper_pairing_codes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    owner_subject: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    code_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    redeemed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class HelperJob(Base):
+    __tablename__ = "helper_jobs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    owner_subject: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    request_id_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    device_id: Mapped[int] = mapped_column(ForeignKey("helper_devices.id", ondelete="CASCADE"), nullable=False, index=True)
+    asset_id: Mapped[int] = mapped_column(ForeignKey("assets.id", ondelete="CASCADE"), nullable=False, index=True)
+    profile_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    redeemed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    device: Mapped[HelperDevice] = relationship(back_populates="jobs")
+    asset: Mapped[Asset] = relationship(back_populates="helper_jobs")
+
+
+class LibraryExcludeRule(Base):
+    __tablename__ = "library_exclude_rules"
+    __table_args__ = (UniqueConstraint("library_id", "pattern", name="uq_library_exclude_rules_library_pattern"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    library_id: Mapped[int] = mapped_column(ForeignKey("libraries.id", ondelete="CASCADE"), nullable=False, index=True)
+    pattern: Mapped[str] = mapped_column(String(1024), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    library: Mapped[Library] = relationship(back_populates="exclude_rules")
+
+    @validates("pattern")
+    def validate_pattern(self, _: str, value: str) -> str:
+        return normalize_relative_glob_pattern(value)
+
+
 class UserPreference(Base):
     __tablename__ = "user_preferences"
     __table_args__ = (UniqueConstraint("subject", "key", name="uq_user_preferences_subject_key"),)
@@ -224,10 +320,12 @@ __all__ = [
     "AssetTag",
     "AuditEvent",
     "Library",
+    "LibraryExcludeRule",
     "Project",
     "ProjectAsset",
     "SlicerProfile",
     "Tag",
     "UserPreference",
+    "normalize_relative_glob_pattern",
     "normalize_relative_path",
 ]

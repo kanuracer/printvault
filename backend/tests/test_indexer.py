@@ -4,6 +4,8 @@ from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from app.services.filesystem import LibraryRootRegistry, SafeFilesystem
 from app.services.indexer import IndexedAsset, LibraryIndexer, duplicate_groups
 from app.worker import IndexingWorker
@@ -86,6 +88,29 @@ def test_indexer_is_idempotent_updates_changed_fingerprint_and_marks_missing(tmp
     assert repository.updates == 1
     assert repository.records[("models", "part.obj")].fingerprint.sha256 != old_fingerprint.sha256
     assert repository.records[("models", "part.obj")].missing is True
+
+
+def test_indexer_excludes_only_configured_relative_glob_patterns(tmp_path: Path) -> None:
+    indexer, repository, library, root = _indexer(tmp_path)
+    indexer = LibraryIndexer(indexer.filesystem, repository, indexer.thumbnails, exclude_patterns=("**/backup/**", "*.tmp"))
+    (root / "keep.stl").write_text("solid keep\nendsolid keep\n", encoding="utf-8")
+    (root / "scratch.tmp").write_text("solid scratch\nendsolid scratch\n", encoding="utf-8")
+    (root / "backup").mkdir()
+    (root / "backup" / "old.stl").write_text("solid old\nendsolid old\n", encoding="utf-8")
+
+    result = indexer.scan(library)
+
+    assert result.created == 1
+    assert result.skipped == 2
+    assert set(repository.records) == {("models", "keep.stl")}
+
+
+@pytest.mark.parametrize("pattern", ["/etc/passwd", "file:///tmp/*.stl", r"\\server\share\*.stl", "C:\\temp\\*.stl", "../escape"])
+def test_indexer_rejects_unsafe_exclude_patterns(tmp_path: Path, pattern: str) -> None:
+    indexer, repository, _, _ = _indexer(tmp_path)
+
+    with pytest.raises(ValueError, match="exclude pattern"):
+        LibraryIndexer(indexer.filesystem, repository, indexer.thumbnails, exclude_patterns=(pattern,))
 
 
 def test_duplicate_groups_use_sha256_and_exclude_unique_assets(tmp_path: Path) -> None:

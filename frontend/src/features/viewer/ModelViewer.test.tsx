@@ -1,7 +1,8 @@
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { BoxGeometry, Group, Mesh, MeshPhongMaterial } from 'three'
 import '../../i18n'
-import { ModelViewer } from './ModelViewer'
+import { applyPreviewMaterial, ModelViewer } from './ModelViewer'
 
 const source = {
   kind: 'authenticated-api' as const,
@@ -44,4 +45,51 @@ describe('ModelViewer validation states', () => {
     if (descriptor) Object.defineProperty(URL, 'revokeObjectURL', descriptor)
     else Reflect.deleteProperty(URL, 'revokeObjectURL')
   })
+})
+
+describe('applyPreviewMaterial', () => {
+  it('keeps source material colors instead of replacing them with the fallback preview color', () => {
+    const geometry = new BoxGeometry(1, 1, 1)
+    const sourceMaterial = new MeshPhongMaterial({ color: 0xf97316 })
+    const root = new Mesh(geometry, sourceMaterial)
+
+    const materials = applyPreviewMaterial(root, false)
+
+    expect(root.material).toBe(sourceMaterial)
+    expect(sourceMaterial.color.getHex()).toBe(0xf97316)
+    expect(materials).toContain(sourceMaterial)
+
+    geometry.dispose()
+    sourceMaterial.dispose()
+  })
+
+  it('applies Bambu project colors by 3MF build-item order without changing shared source materials', () => {
+    const geometry = new BoxGeometry(1, 1, 1)
+    const sharedMaterial = new MeshPhongMaterial({ color: 0xffffff })
+    const root = new Group()
+    const firstBuildItem = new Group()
+    const secondBuildItem = new Group()
+    const firstMesh = new Mesh(geometry, sharedMaterial)
+    const secondMesh = new Mesh(geometry.clone(), sharedMaterial)
+    firstBuildItem.add(firstMesh)
+    secondBuildItem.add(secondMesh)
+    root.add(firstBuildItem, secondBuildItem)
+
+    const materials = applyPreviewMaterial(root, false, ['#ef4444', '#22c55e'])
+
+    expect(firstMesh.material).not.toBe(sharedMaterial)
+    expect(secondMesh.material).not.toBe(sharedMaterial)
+    expect((firstMesh.material as MeshPhongMaterial).color.getStyle()).toBe('rgb(239,68,68)')
+    expect((secondMesh.material as MeshPhongMaterial).color.getStyle()).toBe('rgb(34,197,94)')
+    expect(sharedMaterial.color.getHex()).toBe(0xffffff)
+    expect(materials).toContain(firstMesh.material)
+    expect(materials).toContain(secondMesh.material)
+
+    geometry.dispose()
+    sharedMaterial.dispose()
+    ;(firstMesh.material as MeshPhongMaterial).dispose()
+    ;(secondMesh.material as MeshPhongMaterial).dispose()
+    secondMesh.geometry.dispose()
+  })
+
 })
