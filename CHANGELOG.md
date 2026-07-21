@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.2
+
+### Added
+- Guided Helper setup in Settings plus a Windows setup script that registers the device and creates local configuration.
+
 ## 0.2.1
 
 ### Fixed

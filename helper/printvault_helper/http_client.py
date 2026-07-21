@@ -53,6 +53,15 @@ class UrllibHttpClient(HttpClient):
         )
         return self._request_json(request)
 
+    def register_device(self, *, origin: str, pairing_code: str, device_name: str) -> dict[str, Any]:
+        request = urllib.request.Request(
+            url=f"{origin}/api/helper/devices/register",
+            data=json.dumps({"pairing_code": pairing_code, "device_name": device_name}).encode("utf-8"),
+            method="POST",
+            headers={"Accept": "application/json", "Content-Type": "application/json"},
+        )
+        return self._request_json(request)
+
     def download_asset(self, ctx: RequestContext, asset_url: str, destination: Path) -> None:
         request = urllib.request.Request(
             url=asset_url,

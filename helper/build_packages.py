@@ -56,6 +56,8 @@ def build(output: Path) -> list[Path]:
         package.mkdir()
         _create_zipapp(package / "printvault-helper.pyz")
         shutil.copy2(ROOT / "config.example.json", package / "config.example.json")
+        if platform == "windows":
+            shutil.copy2(ROOT / "setup-windows.ps1", package / "setup-windows.ps1")
         _write_launcher(package, platform)
         shutil.make_archive(str(package), "zip", root_dir=package)
         built.append(package.with_suffix(".zip"))

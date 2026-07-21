@@ -33,6 +33,11 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .nav-bullet { width: 7px; height: 7px; border-radius: 50%; background: currentColor; opacity: .7; }
 .projects-nav { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
 .admin-config-panel { border-top: 1px solid var(--border); display: grid; gap: 10px; padding-top: 4px; }
+.helper-downloads { display: grid; gap: 8px; padding: 0 8px; }
+.helper-downloads .ghost-button { text-decoration: none; }
+.helper-setup-guide { color: var(--text-secondary); font-size: 12px; padding: 0 8px; }
+.helper-setup-guide summary { cursor: pointer; font-weight: 600; }
+.helper-setup-guide ol { display: grid; gap: 7px; line-height: 1.4; margin: 10px 0 0; padding-left: 22px; }
 .admin-config-form { display: grid; gap: 10px; padding: 0 8px; }
 .admin-config-form label { color: var(--text-secondary); display: grid; font-size: 12px; gap: 5px; }
 .admin-config-form input { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; color: var(--text-primary); min-height: 38px; padding: 7px 9px; width: 100%; }

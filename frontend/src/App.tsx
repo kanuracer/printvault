@@ -889,7 +889,7 @@ export default function App() {
           <div className="library-nav">{projects.slice(0, 30).map((project) => <button className={`nav-item ${activeProject === project.id ? 'is-active' : ''}`} key={project.id} onClick={() => void chooseProject(project.id)} type="button"><span className="nav-bullet" />{project.name}<span className="nav-count">{project.assetIds.length}</span></button>)}{projects.length > 30 && <ProjectPicker assignedProjectIds={new Set()} label={t('projects.open')} onAssign={(projectId) => void chooseProject(projectId)} projects={projects} searchLabel={t('projects.search')} emptyLabel={t('projects.noMatches')} />}</div>
         </nav>
 
-        <button aria-pressed={settingsOpen} className={`nav-item settings-nav-button ${settingsOpen ? 'is-active' : ''}`} onClick={() => { setSettingsOpen((open) => !open); setMobileSidebarOpen(false) }} type="button"><span className="nav-bullet" />{t('navigation.settings')}</button>
+        <button aria-pressed={settingsOpen} className={`nav-item settings-nav-button ${settingsOpen ? 'is-active' : ''}`} onClick={() => setSettingsOpen((current) => !current)} type="button">{t('navigation.settings')}</button>
 
         {settingsOpen && role === 'admin' && <section aria-label={t('admin.excludeRules.title')} className="admin-config-panel">
           <div className="nav-section-heading"><p className="nav-label">{t('admin.excludeRules.title')}</p></div>
@@ -916,6 +916,11 @@ export default function App() {
         {settingsOpen && role && <section aria-label={t('helper.title')} className="admin-config-panel">
           <div className="nav-section-heading"><p className="nav-label">{t('helper.title')}</p></div>
           <p className="empty-copy">{t('helper.description')}</p>
+          <div aria-label={t('helper.downloadTitle')} className="helper-downloads">
+            <a className="ghost-button" href="https://github.com/kanuracer/printvault/releases/latest/download/printvault-helper-windows.zip" rel="noopener noreferrer" target="_blank">{t('helper.downloadWindows')}</a>
+            <a className="ghost-button" href="https://github.com/kanuracer/printvault/releases/latest/download/printvault-helper-linux.zip" rel="noopener noreferrer" target="_blank">{t('helper.downloadLinux')}</a>
+          </div>
+          <details className="helper-setup-guide"><summary>{t('helper.setupTitle')}</summary><ol><li>{t('helper.setupDownload')}</li><li>{t('helper.setupConfig')}</li><li>{t('helper.setupPair')}</li><li>{t('helper.setupRegister')}</li><li>{t('helper.setupToken')}</li><li>{t('helper.setupLaunch')}</li></ol></details>
           <button className="primary-button full-width" disabled={helperBusy} onClick={() => void createHelperPairingCode()} type="button">{t('helper.issuePairingCode')}</button>
           {helperPairingCode && <div className="admin-rule-row"><div><code>{helperPairingCode.pairingCode}</code><p>{t('helper.expiresAt', { date: formatDateTime(helperPairingCode.expiresAt) })}</p></div></div>}
           <div className="empty-copy">

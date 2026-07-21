@@ -321,6 +321,10 @@ describe('PrintVault authenticated asset library', () => {
 
     await user.click(await screen.findByRole('button', { name: 'Navigation öffnen' }))
     const navigationDialog = await screen.findByRole('dialog', { name: 'Bibliotheken' })
+    await user.click(within(navigationDialog).getByRole('button', { name: 'Einstellungen' }))
+    expect(await within(navigationDialog).findByRole('region', { name: 'Helper' })).toBeVisible()
+    expect(navigationDialog).toBeVisible()
+    expect(within(navigationDialog).getByRole('link', { name: 'Helper für Windows herunterladen' })).toHaveAttribute('href', 'https://github.com/kanuracer/printvault/releases/latest/download/printvault-helper-windows.zip')
     await user.click(within(navigationDialog).getByRole('button', { name: 'Schließen' }))
     expect(screen.queryByRole('dialog', { name: 'Bibliotheken' })).not.toBeInTheDocument()
 
