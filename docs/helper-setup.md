@@ -9,13 +9,15 @@ Der Helper lädt einen von PrintVault freigegebenen Einmaljob herunter und start
 3. Python 3.10+ installieren. Der Release-Helper benötigt Python; auf dem PrintVault-Testclient wurde Python 3.12 geprüft.
 4. `config.example.json` als `config.json` kopieren.
 5. In PrintVault auf **Kopplungscode erzeugen** klicken. Der Code läuft ab.
-6. PowerShell im entpackten Ordner öffnen und registrieren:
+6. `setup-windows.bat` per Doppelklick starten. Es startet den Setup-Assistenten mit der dafür nötigen lokalen PowerShell-Ausführungsrichtlinie. Keine globale Policy-Änderung nötig.
+
+7. Wenn du die Registrierung manuell ausführen willst, PowerShell im entpackten Ordner öffnen:
 
    ```powershell
    .\printvault-helper.bat --register --origin https://DEIN-PRINTVAULT --pairing-code DEIN-CODE --device-name Mein-PC
    ```
 
-7. Die einmalige Ausgabe sicher lokal ablegen. Sie enthält `user_id`, `device_id` und `device_credential`. PrintVault zeigt das Credential später nicht erneut.
+8. Die einmalige Ausgabe sicher lokal ablegen. Sie enthält `user_id`, `device_id` und `device_credential`. PrintVault zeigt das Credential später nicht erneut.
 8. `config.json` bearbeiten:
    - `origin` auf deine HTTPS-PrintVault-Adresse setzen.
    - `user_id` und `device_id` aus Schritt 7 eintragen.

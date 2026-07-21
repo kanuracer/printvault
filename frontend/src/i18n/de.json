@@ -130,7 +130,7 @@
     "setupDownload": "ZIP für dein Betriebssystem herunterladen und entpacken. Python 3.10 oder neuer ist erforderlich.",
     "setupConfig": "config.example.json als config.json kopieren und HTTPS-PrintVault-Adresse sowie Slicerpfad eintragen.",
     "setupPair": "Hier Kopplungscode erzeugen.",
-    "setupRegister": "Im Helper-Ordner registrieren: printvault-helper --register --origin https://DEIN-PRINTVAULT --pairing-code DEIN-CODE --device-name Mein-PC.",
+    "setupRegister": "Unter Windows setup-windows.bat per Doppelklick ausführen. Es richtet Python, OrcaSlicer und die Kopplung lokal ein.",
     "setupToken": "Einmalige Ausgabe sicher lokal ablegen: user_id und device_id in config.json eintragen; den geheimen Gerätewert nur als Umgebungsvariable PRINTVAULT_HELPER_TOKEN setzen.",
     "setupLaunch": "Bei einem PrintVault-Job startet der Helper erst nach lokaler LAUNCH-Bestätigung den konfigurierten Slicer.",
     "issuePairingCode": "Kopplungscode erzeugen",
