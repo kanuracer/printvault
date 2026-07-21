@@ -18,7 +18,8 @@ Der Helper lädt einen von PrintVault freigegebenen Einmaljob herunter und start
    ```
 
 8. Die einmalige Ausgabe sicher lokal ablegen. Sie enthält `user_id`, `device_id` und `device_credential`. PrintVault zeigt das Credential später nicht erneut.
-8. `config.json` bearbeiten:
+8. Der Assistent fragt den Slicer ab: OrcaSlicer, Bambu Studio, PrusaSlicer, UltiMaker Cura oder eine eigene EXE. Fehlende bekannte Slicer kann er nach lokaler Zustimmung mit winget installieren.
+9. Der Assistent erstellt `config.json` selbst:
    - `origin` auf deine HTTPS-PrintVault-Adresse setzen.
    - `user_id` und `device_id` aus Schritt 7 eintragen.
    - Für OrcaSlicer den vorhandenen Pfad setzen: `C:\Program Files\OrcaSlicer\orca-slicer.exe`.
